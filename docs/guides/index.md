@@ -5,6 +5,7 @@ description: Practical guides for common Gas City workflows.
 
 These guides are task-oriented and current.
 
+- [Migrating to Pack/City v.next](/guides/migrating-to-pack-vnext)
 - [Shareable Packs](/guides/shareable-packs)
 
 Use the [Reference](/reference/index) section for exact command and
