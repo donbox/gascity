@@ -917,8 +917,8 @@ func loadPackWithCacheAndLock(fs fsys.FS, topoPath, topoDir, cityRoot, rigName s
 
 	// Process V2 [imports.X] entries. These are named bindings that
 	// produce agents with qualified names (bindingName.agentName).
-	// Local-path imports are resolved now; remote imports require
-	// gc import install to have already cached them (future work).
+	// Local paths resolve directly; remote imports resolve through
+	// packs.lock plus the shared repo cache.
 	// Process in sorted order for deterministic output.
 	importNames := make([]string, 0, len(tc.Imports))
 	for name := range tc.Imports {
@@ -929,9 +929,8 @@ func loadPackWithCacheAndLock(fs fsys.FS, topoPath, topoDir, cityRoot, rigName s
 	for _, bindingName := range importNames {
 		imp := tc.Imports[bindingName]
 
-		// Resolve the import source. For now, only local paths are
-		// supported. Remote sources require the cache populated by
-		// gc import install (which we don't have yet).
+		// Resolve the import source through either local path resolution
+		// or packs.lock-backed shared cache lookup.
 		impDir, err := resolveImportRef(fs, imp.Source, topoDir, cityRoot, packsLock)
 		if err != nil {
 			return nil, nil, nil, nil, nil, nil, nil, fmt.Errorf("import %q: %w", bindingName, err)

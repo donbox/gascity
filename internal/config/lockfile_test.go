@@ -51,6 +51,33 @@ fetched = "2026-04-11T00:00:00Z"
 	}
 }
 
+func TestReadPacksLock_Track2WriterFormat(t *testing.T) {
+	fs := fsys.NewFake()
+	fs.Files["/city/packs.lock"] = []byte(`schema = 1
+
+[packs."file:///tmp/repo.git//packs/base"]
+version = "1.2.3"
+commit = "abc123def456"
+fetched = "2026-04-10T00:00:00Z"
+
+[packs."https://github.com/example/gastown.git"]
+version = "2.0.0"
+commit = "fedcba654321"
+fetched = "2026-04-11T00:00:00Z"
+`)
+
+	entries, err := ReadPacksLock(fs, "/city")
+	if err != nil {
+		t.Fatalf("ReadPacksLock: %v", err)
+	}
+	if got := entries[`file:///tmp/repo.git//packs/base`]; got.Commit != "abc123def456" {
+		t.Fatalf("subpath entry = %#v, want parsed commit", got)
+	}
+	if got := entries[`https://github.com/example/gastown.git`]; got.Version != "2.0.0" {
+		t.Fatalf("https entry = %#v, want parsed version", got)
+	}
+}
+
 func TestReadPacksLock_UnsupportedSchemaFails(t *testing.T) {
 	fs := fsys.NewFake()
 	fs.Files["/city/packs.lock"] = []byte(`
@@ -79,6 +106,12 @@ func TestCacheDir_Deterministic(t *testing.T) {
 	}
 }
 
+func TestRepoCacheKey_SeparatesSourceCommitBoundary(t *testing.T) {
+	if RepoCacheKey("ab", "c") == RepoCacheKey("a", "bc") {
+		t.Fatal("RepoCacheKey collapsed distinct source/commit pairs")
+	}
+}
+
 func TestIsRemoteImportSource(t *testing.T) {
 	tests := []struct {
 		source string
@@ -88,7 +121,10 @@ func TestIsRemoteImportSource(t *testing.T) {
 		{source: "../packs/local", want: false},
 		{source: "/packs/local", want: false},
 		{source: "github.com/gastownhall/gastown", want: true},
+		{source: "github.com/gastownhall/gastown//packs/base", want: true},
 		{source: "gitlab.com/example/tools", want: true},
+		{source: "git@github.com:org/repo.git", want: true},
+		{source: "file:///tmp/repo.git//packs/base", want: true},
 		{source: "https://github.com/gastownhall/gastown", want: true},
 		{source: "packs/local", want: false},
 	}
@@ -97,5 +133,19 @@ func TestIsRemoteImportSource(t *testing.T) {
 		if got := isRemoteImportSource(tt.source); got != tt.want {
 			t.Fatalf("isRemoteImportSource(%q) = %v, want %v", tt.source, got, tt.want)
 		}
+	}
+}
+
+func TestParseRemoteImportSource_Subpath(t *testing.T) {
+	_, subpath := parseRemoteImportSource("file:///tmp/repo.git//packs/base#v1.2.3")
+	if subpath != "packs/base" {
+		t.Fatalf("subpath = %q, want %q", subpath, "packs/base")
+	}
+}
+
+func TestParseRemoteImportSource_GitSSHSubpath(t *testing.T) {
+	_, subpath := parseRemoteImportSource("git@github.com:org/repo.git//packs/base")
+	if subpath != "packs/base" {
+		t.Fatalf("subpath = %q, want %q", subpath, "packs/base")
 	}
 }

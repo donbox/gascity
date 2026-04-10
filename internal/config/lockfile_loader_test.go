@@ -81,6 +81,54 @@ name = "wrench"
 	}
 }
 
+func TestLoadWithIncludes_RemoteSubpathImportUsesCacheSubdir(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	cityRoot := t.TempDir()
+	source := "file:///tmp/repo.git//packs/base"
+	writeFile(t, cityRoot, "city.toml", `
+[workspace]
+name = "test"
+
+[imports.base]
+source = "file:///tmp/repo.git//packs/base"
+`)
+	writeFile(t, cityRoot, "packs.lock", `schema = 1
+
+[packs."file:///tmp/repo.git//packs/base"]
+version = "1.2.3"
+commit = "abc123def456"
+fetched = "2026-04-10T00:00:00Z"
+`)
+
+	cacheDir := CacheDir(source, "abc123def456")
+	if err := os.MkdirAll(filepath.Join(cacheDir, "packs", "base"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(cacheDir, "packs", "base"), "pack.toml", `
+[pack]
+name = "base"
+schema = 1
+
+[[agent]]
+name = "scout"
+`)
+
+	cfg, _, err := LoadWithIncludes(fsys.OSFS{}, filepath.Join(cityRoot, "city.toml"))
+	if err != nil {
+		t.Fatalf("LoadWithIncludes: %v", err)
+	}
+
+	var names []string
+	for _, agent := range cfg.Agents {
+		names = append(names, agent.QualifiedName())
+	}
+	if !containsString(names, "base.scout") {
+		t.Fatalf("qualified agents = %v, want base.scout", names)
+	}
+}
+
 func TestLoadWithIncludes_V1IncludeCanUsePacksLockForNestedImport(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -140,6 +188,46 @@ name = "wrench"
 	}
 	if !containsString(names, "tools.wrench") {
 		t.Fatalf("qualified agents = %v, want nested import agent", names)
+	}
+}
+
+func TestExpandCityPacks_RemoteImportWithoutLockContextFails(t *testing.T) {
+	dir := t.TempDir()
+	cfg := &City{
+		Imports: map[string]Import{
+			"gastown": {Source: "github.com/gastownhall/gastown"},
+		},
+	}
+
+	_, _, _, err := ExpandCityPacks(cfg, fsys.OSFS{}, dir)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), `source "github.com/gastownhall/gastown": not in packs.lock`) {
+		t.Fatalf("error = %q, want no-lock-context failure", err)
+	}
+}
+
+func TestExpandPacks_RemoteImportWithoutLockContextFails(t *testing.T) {
+	dir := t.TempDir()
+	cfg := &City{
+		Rigs: []Rig{
+			{
+				Name: "proj",
+				Path: "/tmp/proj",
+				Imports: map[string]Import{
+					"gastown": {Source: "github.com/gastownhall/gastown"},
+				},
+			},
+		},
+	}
+
+	err := ExpandPacks(cfg, fsys.OSFS{}, dir, nil)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), `source "github.com/gastownhall/gastown": not in packs.lock`) {
+		t.Fatalf("error = %q, want no-lock-context failure", err)
 	}
 }
 

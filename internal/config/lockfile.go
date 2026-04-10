@@ -51,6 +51,12 @@ func ReadPacksLock(fs fsys.FS, cityRoot string) (map[string]LockEntry, error) {
 	return lock.Packs, nil
 }
 
+// RepoCacheKey returns the canonical shared-cache key for a source+commit pair.
+func RepoCacheKey(source, commit string) string {
+	sum := sha256.Sum256([]byte(source + "\n" + commit))
+	return hex.EncodeToString(sum[:])
+}
+
 // CacheDir returns the shared repo cache directory for a source+commit pair.
 func CacheDir(source, commit string) string {
 	home, err := os.UserHomeDir()
@@ -60,8 +66,7 @@ func CacheDir(source, commit string) string {
 			home = os.TempDir()
 		}
 	}
-	sum := sha256.Sum256([]byte(source + "\n" + commit))
-	return filepath.Join(home, ".gc", "cache", "repos", hex.EncodeToString(sum[:]))
+	return filepath.Join(home, ".gc", "cache", "repos", RepoCacheKey(source, commit))
 }
 
 func resolveImportRef(fs fsys.FS, source, declDir, cityRoot string, locks map[string]LockEntry) (string, error) {
@@ -69,6 +74,8 @@ func resolveImportRef(fs fsys.FS, source, declDir, cityRoot string, locks map[st
 		return resolveConfigPath(source, declDir, cityRoot), nil
 	}
 
+	// packs.lock is keyed by the verbatim remote source string so the
+	// loader and installer agree on cache lookup without re-normalizing.
 	entry, ok := locks[source]
 	if !ok {
 		return "", fmt.Errorf("source %q: not in packs.lock - run gc import install", source)
@@ -79,7 +86,33 @@ func resolveImportRef(fs fsys.FS, source, declDir, cityRoot string, locks map[st
 		return "", fmt.Errorf("source %q: cache missing - run gc import install", source)
 	}
 
+	if _, subpath := parseRemoteImportSource(source); subpath != "" {
+		return filepath.Join(cacheDir, subpath), nil
+	}
+
 	return cacheDir, nil
+}
+
+func parseRemoteImportSource(source string) (base, subpath string) {
+	if isGitHubTreeURL(source) {
+		_, subpath, _ = parseGitHubTreeURL(source)
+		return source, subpath
+	}
+
+	base = source
+	if i := strings.LastIndex(base, "#"); i >= 0 {
+		base = base[:i]
+	}
+
+	searchFrom := 0
+	if idx := strings.Index(base, "://"); idx >= 0 {
+		searchFrom = idx + 3
+	}
+	if i := strings.Index(base[searchFrom:], "//"); i >= 0 {
+		pos := searchFrom + i
+		return source, base[pos+2:]
+	}
+	return source, ""
 }
 
 func isRemoteImportSource(source string) bool {
