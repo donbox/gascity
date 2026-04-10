@@ -102,7 +102,7 @@ commit = "abc123def456"
 fetched = "2026-04-10T00:00:00Z"
 `)
 
-	cacheDir := CacheDir(source, "abc123def456")
+	cacheDir := CacheDir(NormalizeRemoteSource(source), "abc123def456")
 	if err := os.MkdirAll(filepath.Join(cacheDir, "packs", "base"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -278,7 +278,7 @@ fetched = "2026-04-10T00:00:00Z"
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	if !strings.Contains(err.Error(), `source "github.com/gastownhall/gastown": cache missing`) {
+	if !strings.Contains(err.Error(), `source "github.com/gastownhall/gastown" is locked but not cached`) {
 		t.Fatalf("error = %q, want missing cache guidance", err)
 	}
 }

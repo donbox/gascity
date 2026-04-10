@@ -1,8 +1,6 @@
 package config
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -98,17 +96,18 @@ func TestCacheDir_Deterministic(t *testing.T) {
 
 	source := "github.com/gastownhall/gastown"
 	commit := "abc123def456"
-	sum := sha256.Sum256([]byte(source + "\n" + commit))
-	want := filepath.Join("/tmp/gc-home", ".gc", "cache", "repos", hex.EncodeToString(sum[:]))
+	want := filepath.Join("/tmp/gc-home", ".gc", "cache", "repos", RepoCacheKey(source, commit))
 
 	if got := CacheDir(source, commit); got != want {
 		t.Fatalf("CacheDir() = %q, want %q", got, want)
 	}
 }
 
-func TestRepoCacheKey_SeparatesSourceCommitBoundary(t *testing.T) {
-	if RepoCacheKey("ab", "c") == RepoCacheKey("a", "bc") {
-		t.Fatal("RepoCacheKey collapsed distinct source/commit pairs")
+func TestRepoCacheKey_NormalizesRemoteSource(t *testing.T) {
+	base := RepoCacheKey("file:///tmp/repo.git", "abc123")
+	subpath := RepoCacheKey("file:///tmp/repo.git//packs/base", "abc123")
+	if base != subpath {
+		t.Fatalf("RepoCacheKey(base) = %q, RepoCacheKey(subpath) = %q, want equal", base, subpath)
 	}
 }
 
@@ -147,5 +146,24 @@ func TestParseRemoteImportSource_GitSSHSubpath(t *testing.T) {
 	_, subpath := parseRemoteImportSource("git@github.com:org/repo.git//packs/base")
 	if subpath != "packs/base" {
 		t.Fatalf("subpath = %q, want %q", subpath, "packs/base")
+	}
+}
+
+func TestNormalizeRemoteSource(t *testing.T) {
+	tests := []struct {
+		source string
+		want   string
+	}{
+		{source: "https://github.com/example/gastown.git", want: "https://github.com/example/gastown.git"},
+		{source: "https://github.com/example/gastown.git//packs/base", want: "https://github.com/example/gastown.git"},
+		{source: "file:///tmp/repo.git//packs/base#v1.2.3", want: "file:///tmp/repo.git"},
+		{source: "git@github.com:org/repo.git//packs/base", want: "git@github.com:org/repo.git"},
+		{source: "github.com/gastownhall/gastown//packs/base", want: "github.com/gastownhall/gastown"},
+	}
+
+	for _, tt := range tests {
+		if got := NormalizeRemoteSource(tt.source); got != tt.want {
+			t.Fatalf("NormalizeRemoteSource(%q) = %q, want %q", tt.source, got, tt.want)
+		}
 	}
 }

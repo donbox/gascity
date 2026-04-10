@@ -135,6 +135,37 @@ func parseGitHubTreeURL(s string) (source, subpath, ref string) {
 	return source, subpath, ref
 }
 
+// RepoCacheKey computes the canonical cache key for a remote source+commit pair.
+// This must match Track 2 / packman semantics: sha256(normalizedCloneURL + commit).
+func RepoCacheKey(source, commit string) string {
+	sum := sha256.Sum256([]byte(NormalizeRemoteSource(source) + commit))
+	return fmt.Sprintf("%x", sum[:])
+}
+
+// NormalizeRemoteSource extracts the clone URL portion of a remote source,
+// stripping any subpath or ref suffixes used by the loader/import system.
+func NormalizeRemoteSource(source string) string {
+	if isGitHubTreeURL(source) {
+		cloneURL, _, _ := parseGitHubTreeURL(source)
+		return cloneURL
+	}
+
+	withoutRef := source
+	if i := strings.LastIndex(withoutRef, "#"); i >= 0 {
+		withoutRef = withoutRef[:i]
+	}
+
+	searchFrom := 0
+	if idx := strings.Index(withoutRef, "://"); idx >= 0 {
+		searchFrom = idx + 3
+	}
+	if i := strings.Index(withoutRef[searchFrom:], "//"); i >= 0 {
+		pos := searchFrom + i
+		return withoutRef[:pos]
+	}
+	return withoutRef
+}
+
 // resolvePackRef resolves a pack reference to a local directory.
 // Handles local paths, GitHub tree URLs, and git source//sub#ref URLs.
 func resolvePackRef(ref, declDir, cityRoot string) (string, error) {

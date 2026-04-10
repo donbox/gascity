@@ -1,8 +1,6 @@
 package config
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -51,12 +49,6 @@ func ReadPacksLock(fs fsys.FS, cityRoot string) (map[string]LockEntry, error) {
 	return lock.Packs, nil
 }
 
-// RepoCacheKey returns the canonical shared-cache key for a source+commit pair.
-func RepoCacheKey(source, commit string) string {
-	sum := sha256.Sum256([]byte(source + "\n" + commit))
-	return hex.EncodeToString(sum[:])
-}
-
 // CacheDir returns the shared repo cache directory for a source+commit pair.
 func CacheDir(source, commit string) string {
 	home, err := os.UserHomeDir()
@@ -83,7 +75,7 @@ func resolveImportRef(fs fsys.FS, source, declDir, cityRoot string, locks map[st
 
 	cacheDir := CacheDir(source, entry.Commit)
 	if _, err := fs.Stat(cacheDir); err != nil {
-		return "", fmt.Errorf("source %q: cache missing - run gc import install", source)
+		return "", fmt.Errorf("source %q is locked but not cached at %s - run gc import install", source, cacheDir)
 	}
 
 	if _, subpath := parseRemoteImportSource(source); subpath != "" {
