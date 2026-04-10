@@ -470,6 +470,126 @@ scope = "city"
 	}
 }
 
+func TestImport_RigImportRejectsServices(t *testing.T) {
+	// Services from rig imports should be rejected (city-scoped only).
+	dir := t.TempDir()
+	cityDir := filepath.Join(dir, "city")
+	packDir := filepath.Join(dir, "svcpack")
+
+	for _, d := range []string{cityDir, packDir} {
+		os.MkdirAll(d, 0o755)
+	}
+
+	writeTestFile(t, cityDir, "city.toml", `
+[workspace]
+name = "test"
+
+[[rigs]]
+name = "proj"
+path = "/tmp/proj"
+
+[rigs.imports.svc]
+source = "../svcpack"
+`)
+	writeTestFile(t, packDir, "pack.toml", `
+[pack]
+name = "svcpack"
+schema = 1
+
+[[service]]
+name = "webhook"
+kind = "workflow"
+
+[[agent]]
+name = "worker"
+scope = "rig"
+`)
+
+	_, _, err := LoadWithIncludes(fsys.OSFS{}, filepath.Join(cityDir, "city.toml"))
+	if err == nil {
+		t.Fatal("expected error for service in rig import")
+	}
+	if !strings.Contains(err.Error(), "service") {
+		t.Errorf("error should mention service; got: %v", err)
+	}
+}
+
+func TestImport_RigImportRequirementFailure(t *testing.T) {
+	// When an imported rig pack requires an agent that doesn't exist,
+	// it should produce a clear error.
+	dir := t.TempDir()
+	cityDir := filepath.Join(dir, "city")
+	packDir := filepath.Join(dir, "reqpack")
+
+	for _, d := range []string{cityDir, packDir} {
+		os.MkdirAll(d, 0o755)
+	}
+
+	writeTestFile(t, cityDir, "city.toml", `
+[workspace]
+name = "test"
+
+[[rigs]]
+name = "proj"
+path = "/tmp/proj"
+
+[rigs.imports.req]
+source = "../reqpack"
+`)
+	writeTestFile(t, packDir, "pack.toml", `
+[pack]
+name = "reqpack"
+schema = 1
+
+[[pack.requires]]
+agent = "missing-agent"
+scope = "rig"
+
+[[agent]]
+name = "worker"
+scope = "rig"
+`)
+
+	_, _, err := LoadWithIncludes(fsys.OSFS{}, filepath.Join(cityDir, "city.toml"))
+	if err == nil {
+		t.Fatal("expected error for unsatisfied pack requirement")
+	}
+	if !strings.Contains(err.Error(), "missing-agent") {
+		t.Errorf("error should mention required agent; got: %v", err)
+	}
+}
+
+func TestImport_PackMissingName(t *testing.T) {
+	// A pack with no [pack].name should produce a clear error.
+	dir := t.TempDir()
+	cityDir := filepath.Join(dir, "city")
+	packDir := filepath.Join(dir, "noname")
+
+	for _, d := range []string{cityDir, packDir} {
+		os.MkdirAll(d, 0o755)
+	}
+
+	writeTestFile(t, cityDir, "city.toml", `
+[workspace]
+name = "test"
+
+[imports.bad]
+source = "../noname"
+`)
+	writeTestFile(t, packDir, "pack.toml", `
+[pack]
+schema = 1
+`)
+
+	_, _, err := LoadWithIncludes(fsys.OSFS{}, filepath.Join(cityDir, "city.toml"))
+	if err == nil {
+		t.Fatal("expected error for pack with no name")
+	}
+	if !strings.Contains(err.Error(), "name") {
+		t.Errorf("error should mention name; got: %v", err)
+	}
+}
+
 func TestImport_AgentDiscoveryWithNoPromptOrToml(t *testing.T) {
 	// An agents/<name>/ directory with neither prompt.md nor agent.toml
 	// should still create an agent (minimal discovery).
