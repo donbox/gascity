@@ -304,8 +304,11 @@ func ExpandPacks(cfg *City, fs fsys.FS, cityRoot string, rigFormulaDirs map[stri
 			return err
 		}
 
-		// Apply per-rig overrides after all packs for this rig.
-		if err := applyOverrides(rigAgents, rig.Overrides, rig.Name); err != nil {
+		// Apply per-rig overrides/patches after all packs for this rig.
+		// V2 accepts both "overrides" (V1) and "patches" (V2) TOML keys.
+		allOverrides := rig.Overrides
+		allOverrides = append(allOverrides, rig.RigPatches...)
+		if err := applyOverrides(rigAgents, allOverrides, rig.Name); err != nil {
 			return fmt.Errorf("rig %q: %w", rig.Name, err)
 		}
 

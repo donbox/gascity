@@ -313,7 +313,12 @@ type Rig struct {
 	// all agents in this rig. Nil means inherit from workspace (or unlimited).
 	MaxActiveSessions *int `toml:"max_active_sessions,omitempty"`
 	// Overrides are per-agent patches applied after pack expansion.
+	// V2 renames this to "patches" for consistency with [[patches.agent]].
+	// Both TOML keys are accepted during migration.
 	Overrides []AgentOverride `toml:"overrides,omitempty"`
+	// Patches is the V2 name for rig-level agent overrides. Takes
+	// precedence over Overrides if both are set.
+	RigPatches []AgentOverride `toml:"patches,omitempty"`
 	// DefaultSlingTarget is the agent qualified name used when gc sling is
 	// invoked with only a bead ID (no explicit target). Resolved via
 	// resolveAgentIdentity. Example: "rig/polecat"
