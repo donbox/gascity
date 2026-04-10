@@ -105,6 +105,7 @@ Use the city pack's `pack.toml` for city-wide imports. Use rig-scoped
 imports in `city.toml` when a pack should compose only into one rig.
 If you used `workspace.default_rig_includes`, that maps to
 `[defaults.rig.imports.*]` in the root `pack.toml`.
+<!-- csells: clarified that there are both per-rig imports and default rig imports, because this was called out as fuzzy in review. -->
 
 ### Smallest city-wide example
 
@@ -116,7 +117,7 @@ Before:
 name = "my-city"
 includes = ["maintenance"]
 ```
-// CALL OUT THE SCHEMA # CHANGE
+
 After:
 
 ```toml
@@ -128,6 +129,21 @@ schema = 2
 [imports.maintenance]
 source = "https://github.com/gastownhall/gascity-packs/maintenance"
 ```
+<!-- csells: updated the examples to use the current gascity-packs base URL and to call out schema = 2 explicitly in new pack.toml examples. -->
+
+Remote imports are expected to resolve into local materialized state,
+not require live internet access on every load. Fetching, updating, and
+re-materializing missing imports is the online step. The lock file is
+the authoritative statement of desired installed state, and normal load
+should use local materialized content. If that content is missing, Gas
+City should repair from local cache first and then from the remote
+source if needed.
+<!-- csells: expanded the import note to state the intended offline contract more directly. The follow-up validation command is being tracked in issue #575. -->
+
+The planned command surface for checking and repairing this state is
+`gc import check`. That missing feature is tracked in
+[#575](https://github.com/gastownhall/gascity/issues/575).
+<!-- csells: this answers the "what happens when the internet is down?" follow-up with the concrete missing feature we still need to build. -->
 
 That is the core change:
 
@@ -177,6 +193,7 @@ source = "https://github.com/my-org/my-helper-pack"
 
 If you want the pack contents be local to your city and move around with it, keep the
 pack under `assets/` and import it explicitly.
+<!-- csells: added explicit local-vs-remote guidance. The preferred path is its own repo with a URL import; the asset-carried path remains documented for packs that need to travel with a city. -->
 
 Before:
 
@@ -254,6 +271,7 @@ This is different from `rigs.imports.*`:
 
 - `rigs.imports.*` applies to one specific rig already declared in `city.toml`
 - `[defaults.rig.imports.*]` is the default import set for newly created rigs
+<!-- csells: this distinction was easy to lose in the earlier draft, so the guide now states it directly. -->
 
 As you migrate, the usual pattern is:
 
@@ -295,6 +313,7 @@ source = "https://github.com/gastownhall/gascity-packs/ops"
 
 then the local names are what let you qualify them as `civic.mayor` and
 `ops.mayor` instead of relying on load order or accidental flattening.
+<!-- csells: added an explicit qualification example so the local binding name is shown in use, not just in declaration. -->
 
 ## Then: migrate area by area
 
@@ -364,6 +383,7 @@ wake_mode = "fresh"
 
 In Gas City 0.13.5, the default provider lived on `[workspace]`. In Gas
 City 0.13.6, that default belongs on `[agents]` in `pack.toml`.
+<!-- csells: expanded this section because the original wording around provider/defaults was too implicit. -->
 
 Before:
 
@@ -393,6 +413,7 @@ After:
 [agents]
 provider = "claude"
 ```
+<!-- csells: we are intentionally using the same field name here. `[agents]` is the defaults table, so `provider` means "default provider" rather than introducing a separate `default_provider` spelling. -->
 
 ```text
 agents/
@@ -451,6 +472,17 @@ agents/
 The same pattern applies to other agent defaults that belong at pack
 scope, such as `model`, `default_sling_formula`, `allow_overlay`, and
 `allow_env_override`.
+<!-- csells: added a second defaults example to show that provider is not special; [agents] is a defaults table for the subset of agent fields that make sense at pack scope. -->
+
+In 0.13.6, the supported pack-wide defaults under `[agents]` are:
+
+- `provider`
+- `model`
+- `wake_mode`
+- `default_sling_formula`
+- `allow_overlay`
+- `allow_env_override`
+<!-- csells: made the supported `[agents]` defaults explicit so the guide does not imply that every agent field can be defaulted there. -->
 
 ### Add agent-local overlay content
 
@@ -481,10 +513,15 @@ agents/
 If you are migrating a city, city-local agents are still just agents in
 the root city pack.
 
-One practical detail to keep in mind: prompt processing is driven by the
-file type. The new default is `agents/<name>/prompt.md`. If you relied
-on template-style prompt files before, check the extension and rendering
-behavior you expect as you migrate the old prompt into its new home.
+Prompt processing now follows an explicit file-extension rule:
+
+- `prompt.md` is plain Markdown
+- `prompt.md.tmpl` is rendered through the template engine
+
+So if your old prompt relied on template expansion, rename it to
+`prompt.md.tmpl` as part of the migration. If it is plain prompt
+content, keep it as `prompt.md`.
+<!-- csells: made the prompt behavior change explicit. In 0.13.6 template expansion is limited to `.tmpl` files rather than being inferred from prompt location alone. -->
 
 ## Formulas
 
@@ -547,6 +584,11 @@ This gives a consistent pair:
 
 - `formulas/<name>.formula.toml`
 - `orders/<name>.order.toml`
+
+The extra noun in the filename is intentional. Gas City 0.13.6 uses the
+`name.noun.toml` pattern for file-based definitions so the file is
+self-describing even outside its directory context.
+<!-- csells: this explains why the guide keeps `.formula.toml` and `.order.toml` instead of collapsing everything to plain `.toml`. -->
 
 ## Commands
 
@@ -903,6 +945,25 @@ Use TOML when you actually need:
 - metadata
 - explicit placement
 
+### "Will `gc doctor` catch structural mistakes?"
+
+That is the expectation. Gas City 0.13.6 leans much more heavily on
+convention, so `gc doctor` should be the place that validates common
+pack and city layout mistakes.
+
+Examples include:
+
+- unrecognized top-level directories
+- missing expected files in recognized definition directories
+- malformed command or doctor entries
+- invalid path references
+<!-- csells: kept `gc doctor` as the general convention validator, but separated import-cache/materialization validation into the planned `gc import check` command tracked in issue #575. -->
+
+Import cache and materialization validation is a separate concern. That
+work should land under `gc import check`, not under `gc doctor`. See
+[#575](https://github.com/gastownhall/gascity/issues/575).
+<!-- csells: this records the design call that general layout mistakes stay under `gc doctor`, but import-cache validation moves to `gc import check`. -->
+
 ## Reference: Gas City 0.13.5 `city.toml` elements to 0.13.6
 
 This is the exhaustive top-level lookup table for the old `city.toml`
@@ -971,6 +1032,7 @@ This is the filesystem companion to the `city.toml` table above.
 ## Reference: Gas City 0.13.5 `pack.toml` elements to 0.13.6
 
 This is the compact lookup table for migrating old shareable packs.
+<!-- csells: restored a trimmed pack.toml table after review. The city.toml table remains the main appendix, but old shareable packs still need an explicit migration lookup. -->
 
 | 0.13.5 element | What it did | New home or action |
 |---|---|---|
