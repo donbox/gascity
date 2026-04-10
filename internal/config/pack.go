@@ -1040,6 +1040,12 @@ func loadPackWithCache(fs fsys.FS, topoPath, topoDir, cityRoot, rigName string, 
 				agent.OverlayDir = overlayPath
 			}
 
+			// Discover namepool.txt for pool session display names.
+			namepoolPath := filepath.Join(agentDir, "namepool.txt")
+			if _, npErr := fs.Stat(namepoolPath); npErr == nil {
+				agent.Namepool = namepoolPath
+			}
+
 			tc.Agents = append(tc.Agents, agent)
 		}
 	}
