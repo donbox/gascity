@@ -44,7 +44,6 @@ func LoadWithIncludes(fs fsys.FS, path string, extraIncludes ...string) (*City, 
 	if err != nil {
 		return nil, nil, fmt.Errorf("loading config %q: %w", path, err)
 	}
-
 	cityRoot := filepath.Dir(path)
 	prov := newProvenance(path)
 	prov.Warnings = append(prov.Warnings, rootWarnings...)
@@ -55,8 +54,11 @@ func LoadWithIncludes(fs fsys.FS, path string, extraIncludes ...string) (*City, 
 	// providers, named sessions) into the root config. pack.toml agents
 	// and imports are the city pack's own content; city.toml carries
 	// deployment (rigs, substrates, capacity) plus any inline agents.
+	cityImportCount := len(root.Imports)
+	packExists := false
 	packPath := filepath.Join(cityRoot, packFile)
 	if packData, pErr := fs.ReadFile(packPath); pErr == nil {
+		packExists = true
 		var pc packConfig
 		if _, decErr := toml.Decode(string(packData), &pc); decErr != nil {
 			return nil, nil, fmt.Errorf("parsing city pack.toml: %w", decErr)
@@ -114,6 +116,14 @@ func LoadWithIncludes(fs fsys.FS, path string, extraIncludes ...string) (*City, 
 		}
 	} // end pack.toml merge
 
+	// V2 guidance: when pack.toml exists, city.toml imports should move
+	// to pack.toml (imports are definition, city.toml is deployment).
+	// Warn but don't error — city.toml imports still work for compatibility.
+	if packExists && cityImportCount > 0 {
+		prov.Warnings = append(prov.Warnings,
+			fmt.Sprintf("city.toml declares %d [imports] — consider moving them to pack.toml (imports are definition, city.toml is deployment)", cityImportCount))
+	}
+
 	// Track root's resources.
 	trackAgents(prov, root.Agents, path)
 	trackRigs(prov, root.Rigs, path)
@@ -141,7 +151,7 @@ func LoadWithIncludes(fs fsys.FS, path string, extraIncludes ...string) (*City, 
 		if isRemoteInclude(inc) || isGitHubTreeURL(inc) {
 			resolved, err := resolvePackRef(inc, cityRoot, cityRoot)
 			if err != nil {
-				return nil, nil, fmt.Errorf("fetching include %q: %w", inc, err)
+				return nil, nil, fmt.Errorf("resolving include %q: %w", inc, err)
 			}
 			fragPath = resolved
 		} else {

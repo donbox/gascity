@@ -1134,6 +1134,12 @@ name = "reviewer"
 
 	// Use file:// protocol to reference the bare repo with //subpath.
 	remoteInclude := "file://" + bare + "//agents.toml"
+	cacheName := includeCacheName("file://" + bare)
+	cacheDir := filepath.Join(cityDir, ".gc", "cache", "includes", cacheName)
+	if err := clonePack(bare, cacheDir, ""); err != nil {
+		t.Fatalf("pre-clone cached include: %v", err)
+	}
+
 	cityToml := `
 include = ["` + remoteInclude + `"]
 
@@ -1189,8 +1195,13 @@ name = "test-fail"
 	if err == nil {
 		t.Fatal("expected error for bogus remote include, got nil")
 	}
-	if !strings.Contains(err.Error(), "fetching include") {
-		t.Errorf("error = %q, want it to contain %q", err.Error(), "fetching include")
+	if !strings.Contains(err.Error(), "resolving include") {
+		t.Errorf("error = %q, want it to contain %q", err.Error(), "resolving include")
+	}
+
+	cacheDir := filepath.Join(cityDir, ".gc", "cache", "includes", includeCacheName("https://example.com/nonexistent.git"))
+	if _, statErr := os.Stat(cacheDir); !os.IsNotExist(statErr) {
+		t.Errorf("cache dir %q should not have been created; stat err = %v", cacheDir, statErr)
 	}
 }
 

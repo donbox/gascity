@@ -5,6 +5,8 @@ package config
 // and qualified name generation that form the foundation of #360.
 
 import (
+	"crypto/sha256"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -452,48 +454,99 @@ transitive = false
 	}
 }
 
-func TestImport_CityLevelImports(t *testing.T) {
-	// A city declares [imports.X] directly in city.toml.
-	// The loader should resolve them and produce agents with binding names.
+func TestImport_CityTomlImportsWarnWhenPackTomlExists(t *testing.T) {
+	// When pack.toml exists, city.toml imports should produce a warning
+	// guiding the user to move them to pack.toml. Without pack.toml,
+	// city.toml imports work normally (backward compatibility).
 	dir := t.TempDir()
 	cityDir := filepath.Join(dir, "city")
 	gasDir := filepath.Join(dir, "gastown")
-	maintDir := filepath.Join(dir, "maint")
-
-	for _, d := range []string{cityDir, gasDir, maintDir} {
+	for _, d := range []string{cityDir, gasDir} {
 		os.MkdirAll(d, 0o755)
 	}
 
+	writeTestFile(t, gasDir, "pack.toml", `
+[pack]
+name = "gastown"
+schema = 1
+`)
+	// City with BOTH pack.toml and city.toml imports.
+	writeTestFile(t, cityDir, "pack.toml", `
+[pack]
+name = "test"
+schema = 1
+`)
 	writeTestFile(t, cityDir, "city.toml", `
 [workspace]
 name = "test"
 
 [imports.gastown]
 source = "../gastown"
-
-[imports.maint]
-source = "../maint"
-
-[[agent]]
-name = "mayor"
-scope = "city"
 `)
-	writeTestFile(t, gasDir, "pack.toml", `
+
+	_, prov, err := LoadWithIncludes(fsys.OSFS{}, filepath.Join(cityDir, "city.toml"))
+	if err != nil {
+		t.Fatalf("city.toml imports should work (with warning), got error: %v", err)
+	}
+	// Should produce a warning about moving imports to pack.toml.
+	found := false
+	for _, w := range prov.Warnings {
+		if strings.Contains(w, "pack.toml") && strings.Contains(w, "imports") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected warning about city.toml imports when pack.toml exists; warnings: %v", prov.Warnings)
+	}
+}
+
+func TestImport_RootPackRemoteImportFromLockfileCache(t *testing.T) {
+	dir := t.TempDir()
+	home := filepath.Join(dir, "home")
+	t.Setenv("HOME", home)
+
+	cityDir := filepath.Join(dir, "city")
+	if err := os.MkdirAll(cityDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	source := "https://github.com/example/gastown.git"
+	commit := "abc123def456"
+	cacheKey := fmt.Sprintf("%x", sha256.Sum256([]byte(source+commit)))
+	cacheDir := filepath.Join(home, ".gc", "cache", "repos", cacheKey)
+	if err := os.MkdirAll(filepath.Join(cacheDir, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	writeTestFile(t, cityDir, "city.toml", `
+[workspace]
+name = "test"
+`)
+	writeTestFile(t, cityDir, "pack.toml", `
+[pack]
+name = "test"
+schema = 1
+
+[imports.gastown]
+source = "https://github.com/example/gastown.git"
+version = "^1.2"
+`)
+	writeTestFile(t, cityDir, "packs.lock", `
+schema = 1
+
+[packs."https://github.com/example/gastown.git"]
+version = "1.2.3"
+commit = "abc123def456"
+fetched = "2026-04-10T00:00:00Z"
+`)
+	writeTestFile(t, cacheDir, "pack.toml", `
 [pack]
 name = "gastown"
 schema = 1
 
 [[agent]]
 name = "polecat"
-scope = "city"
-`)
-	writeTestFile(t, maintDir, "pack.toml", `
-[pack]
-name = "maintenance"
-schema = 1
-
-[[agent]]
-name = "dog"
 scope = "city"
 `)
 
@@ -507,22 +560,120 @@ scope = "city"
 	for _, a := range explicit {
 		found[a.QualifiedName()] = true
 	}
-
-	// City's own agent has no binding.
-	if !found["mayor"] {
-		t.Errorf("missing mayor; got: %v", found)
-	}
-	// Import agents have binding names.
 	if !found["gastown.polecat"] {
 		t.Errorf("missing gastown.polecat; got: %v", found)
 	}
-	if !found["maint.dog"] {
-		t.Errorf("missing maint.dog; got: %v", found)
+}
+
+func TestImport_RootPackRemoteImportMissingSharedCacheFails(t *testing.T) {
+	dir := t.TempDir()
+	home := filepath.Join(dir, "home")
+	t.Setenv("HOME", home)
+
+	cityDir := filepath.Join(dir, "city")
+	if err := os.MkdirAll(cityDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	writeTestFile(t, cityDir, "city.toml", `
+[workspace]
+name = "test"
+`)
+	writeTestFile(t, cityDir, "pack.toml", `
+[pack]
+name = "test"
+schema = 1
+
+[imports.gastown]
+source = "https://github.com/example/gastown.git"
+version = "^1.2"
+`)
+	writeTestFile(t, cityDir, "packs.lock", `
+schema = 1
+
+[packs."https://github.com/example/gastown.git"]
+version = "1.2.3"
+commit = "abc123def456"
+fetched = "2026-04-10T00:00:00Z"
+`)
+
+	_, _, err := LoadWithIncludes(fsys.OSFS{}, filepath.Join(cityDir, "city.toml"))
+	if err == nil {
+		t.Fatal("expected missing shared cache error")
+	}
+	if !strings.Contains(err.Error(), "locked but not cached") {
+		t.Fatalf("error = %v, want locked but not cached", err)
 	}
 }
 
-func TestImport_CityLevelImportsWithRig(t *testing.T) {
-	// City-level imports should produce city-scoped agents only.
+func TestImport_RootPackRemoteSubpathImportFromLockfileCache(t *testing.T) {
+	dir := t.TempDir()
+	home := filepath.Join(dir, "home")
+	t.Setenv("HOME", home)
+
+	cityDir := filepath.Join(dir, "city")
+	if err := os.MkdirAll(cityDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	commit := "abc123def456"
+	cacheKey := fmt.Sprintf("%x", sha256.Sum256([]byte("file:///tmp/repo.git"+commit)))
+	cacheDir := filepath.Join(home, ".gc", "cache", "repos", cacheKey)
+	if err := os.MkdirAll(filepath.Join(cacheDir, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(cacheDir, "packs", "base"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	writeTestFile(t, cityDir, "city.toml", `
+[workspace]
+name = "test"
+`)
+	writeTestFile(t, cityDir, "pack.toml", `
+[pack]
+name = "test"
+schema = 1
+
+[imports.base]
+source = "file:///tmp/repo.git//packs/base"
+version = "^1.2"
+`)
+	writeTestFile(t, cityDir, "packs.lock", `
+schema = 1
+
+[packs."file:///tmp/repo.git//packs/base"]
+version = "1.2.3"
+commit = "abc123def456"
+fetched = "2026-04-10T00:00:00Z"
+`)
+	writeTestFile(t, filepath.Join(cacheDir, "packs", "base"), "pack.toml", `
+[pack]
+name = "base"
+schema = 1
+
+[[agent]]
+name = "scout"
+scope = "city"
+`)
+
+	cfg, _, err := LoadWithIncludes(fsys.OSFS{}, filepath.Join(cityDir, "city.toml"))
+	if err != nil {
+		t.Fatalf("LoadWithIncludes: %v", err)
+	}
+
+	explicit := explicitAgents(cfg.Agents)
+	found := map[string]bool{}
+	for _, a := range explicit {
+		found[a.QualifiedName()] = true
+	}
+	if !found["base.scout"] {
+		t.Errorf("missing base.scout; got: %v", found)
+	}
+}
+
+func TestImport_RootPackImportsWithRig(t *testing.T) {
+	// Root-pack imports should produce city-scoped agents only.
 	// Rig-scoped agents from imports should not appear at city level.
 	dir := t.TempDir()
 	cityDir := filepath.Join(dir, "city")
@@ -535,6 +686,11 @@ func TestImport_CityLevelImportsWithRig(t *testing.T) {
 	writeTestFile(t, cityDir, "city.toml", `
 [workspace]
 name = "test"
+`)
+	writeTestFile(t, cityDir, "pack.toml", `
+[pack]
+name = "test"
+schema = 1
 
 [imports.gs]
 source = "../gastown"
@@ -574,8 +730,8 @@ scope = "rig"
 	}
 }
 
-func TestImport_CityImportsCoexistWithIncludes(t *testing.T) {
-	// V1 includes and V2 imports should work together in the same city.
+func TestImport_RootPackImportsCoexistWithIncludes(t *testing.T) {
+	// V1 includes and root-pack V2 imports should work together in the same city.
 	dir := t.TempDir()
 	cityDir := filepath.Join(dir, "city")
 	includeDir := filepath.Join(dir, "city", "old-pack")
@@ -589,6 +745,11 @@ func TestImport_CityImportsCoexistWithIncludes(t *testing.T) {
 [workspace]
 name = "test"
 includes = ["old-pack"]
+`)
+	writeTestFile(t, cityDir, "pack.toml", `
+[pack]
+name = "test"
+schema = 1
 
 [imports.newpk]
 source = "../new-pack"
@@ -767,6 +928,11 @@ func TestImport_ShadowWarningEmitted(t *testing.T) {
 	writeTestFile(t, cityDir, "city.toml", `
 [workspace]
 name = "test"
+`)
+	writeTestFile(t, cityDir, "pack.toml", `
+[pack]
+name = "test"
+schema = 1
 
 [imports.gastown]
 source = "../gastown"
@@ -816,6 +982,11 @@ func TestImport_ShadowWarningSuppressed(t *testing.T) {
 	writeTestFile(t, cityDir, "city.toml", `
 [workspace]
 name = "test"
+`)
+	writeTestFile(t, cityDir, "pack.toml", `
+[pack]
+name = "test"
+schema = 1
 
 [imports.gastown]
 source = "../gastown"
@@ -859,6 +1030,11 @@ func TestImport_DiamondDAGNoCycle(t *testing.T) {
 	writeTestFile(t, cityDir, "city.toml", `
 [workspace]
 name = "test"
+`)
+	writeTestFile(t, cityDir, "pack.toml", `
+[pack]
+name = "test"
+schema = 1
 
 [imports.b]
 source = "../b"
@@ -923,6 +1099,11 @@ func TestImport_SameNameDifferentBindings(t *testing.T) {
 	writeTestFile(t, cityDir, "city.toml", `
 [workspace]
 name = "test"
+`)
+	writeTestFile(t, cityDir, "pack.toml", `
+[pack]
+name = "test"
+schema = 1
 
 [imports.gs]
 source = "../gastown"
@@ -979,6 +1160,11 @@ func TestImport_TransitiveFalseBlocksNested(t *testing.T) {
 	writeTestFile(t, cityDir, "city.toml", `
 [workspace]
 name = "test"
+`)
+	writeTestFile(t, cityDir, "pack.toml", `
+[pack]
+name = "test"
+schema = 1
 
 [imports.b]
 source = "../b"
@@ -1029,8 +1215,8 @@ scope = "city"
 	}
 }
 
-func TestImport_MissingCityImportIsFatal(t *testing.T) {
-	// A typo in [imports.X].source should be a hard error, not silently skipped.
+func TestImport_MissingRootPackImportIsFatal(t *testing.T) {
+	// A typo in root pack.toml [imports.X].source should be a hard error.
 	dir := t.TempDir()
 	cityDir := filepath.Join(dir, "city")
 	os.MkdirAll(cityDir, 0o755)
@@ -1038,6 +1224,11 @@ func TestImport_MissingCityImportIsFatal(t *testing.T) {
 	writeTestFile(t, cityDir, "city.toml", `
 [workspace]
 name = "test"
+`)
+	writeTestFile(t, cityDir, "pack.toml", `
+[pack]
+name = "test"
+schema = 1
 
 [imports.typo]
 source = "../nonexistent"
@@ -1487,9 +1678,9 @@ func TestAgentMatchesIdentity(t *testing.T) {
 
 func TestQualifiedName_WithBindingName(t *testing.T) {
 	tests := []struct {
-		name        string
-		agent       Agent
-		wantQN      string
+		name   string
+		agent  Agent
+		wantQN string
 	}{
 		{
 			name:   "bare name, no binding, no dir",

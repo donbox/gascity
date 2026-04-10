@@ -16,7 +16,6 @@ import (
 	"github.com/gastownhall/gascity/internal/beads"
 	beadsexec "github.com/gastownhall/gascity/internal/beads/exec"
 	"github.com/gastownhall/gascity/internal/citylayout"
-	"github.com/gastownhall/gascity/internal/config"
 	"github.com/gastownhall/gascity/internal/events"
 	"github.com/gastownhall/gascity/internal/fsys"
 	"github.com/gastownhall/gascity/internal/supervisor"
@@ -115,6 +114,7 @@ func newRootCmd(stdout, stderr io.Writer) *cobra.Command {
 		newTraceCmd(stdout, stderr),
 		newOrderCmd(stdout, stderr),
 		newConfigCmd(stdout, stderr),
+		newImportCmd(stdout, stderr),
 		newPackCmd(stdout, stderr),
 		newDoctorCmd(stdout, stderr),
 		newHookCmd(stdout, stderr),
@@ -348,7 +348,7 @@ func validateCityPath(p string) (string, error) {
 		return "", err
 	}
 	if citylayout.HasCityConfig(abs) || citylayout.HasRuntimeRoot(abs) {
-		return normalizePathForCompare(abs), nil
+		return abs, nil
 	}
 	return "", fmt.Errorf("not a city directory: %s (no city.toml or .gc/ found)", abs)
 }
@@ -446,13 +446,12 @@ func rigFromCwdDir(cityPath, cwd string) string {
 	if err != nil {
 		return ""
 	}
-	cwd = normalizePathForCompare(cwd)
 	for _, rig := range cfg.Rigs {
 		rigPath := rig.Path
 		if !filepath.IsAbs(rigPath) {
 			rigPath = filepath.Join(cityPath, rigPath)
 		}
-		rigPath = normalizePathForCompare(rigPath)
+		rigPath = filepath.Clean(rigPath)
 		if cwd == rigPath || (len(cwd) > len(rigPath) && cwd[len(rigPath)] == '/' && cwd[:len(rigPath)] == rigPath) {
 			return rig.Name
 		}
@@ -500,7 +499,7 @@ func rigCityEntries(reg *supervisor.Registry, rigPath string) []supervisor.CityE
 			if !filepath.IsAbs(rp) {
 				rp = filepath.Join(c.Path, rp)
 			}
-			if samePath(rp, rigPath) {
+			if filepath.Clean(rp) == rigPath {
 				matched = append(matched, c)
 			}
 		}
@@ -565,21 +564,6 @@ func openCityStore(stderr io.Writer, cmdName string) (beads.Store, int) {
 	return store, 0
 }
 
-// resolveHQPrefixForPath loads the city config and returns the HQ beads prefix.
-// Returns empty string on any error (best-effort).
-func resolveHQPrefixForPath(cityPath string) string {
-	tomlPath := filepath.Join(cityPath, "city.toml")
-	data, err := os.ReadFile(tomlPath)
-	if err != nil {
-		return ""
-	}
-	cfg, err := config.Parse(data)
-	if err != nil {
-		return ""
-	}
-	return config.EffectiveHQPrefix(cfg)
-}
-
 // openCityStoreAt opens a bead store at the given city path.
 // Used by the controller (which already knows the city path) and by
 // openCityStore (which resolves the path first).
@@ -595,15 +579,7 @@ func openStoreAtForCity(storePath, cityPath string) (beads.Store, error) {
 	provider := rawBeadsProvider(runtimeCityPath)
 	if strings.HasPrefix(provider, "exec:") {
 		store := beadsexec.NewStore(strings.TrimPrefix(provider, "exec:"))
-		env := citylayout.CityRuntimeEnvMap(runtimeCityPath)
-		// Only set GC_BEADS_PREFIX for the HQ store. Rig stores get their
-		// prefix configured during init (gc-beads-k8s start sets issue_prefix).
-		if storePath == runtimeCityPath {
-			if prefix := resolveHQPrefixForPath(runtimeCityPath); prefix != "" {
-				env["GC_BEADS_PREFIX"] = prefix
-			}
-		}
-		store.SetEnv(env)
+		store.SetEnv(citylayout.CityRuntimeEnvMap(runtimeCityPath))
 		return store, nil
 	}
 	switch provider {
