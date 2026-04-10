@@ -51,6 +51,10 @@ type packConfig struct {
 // (Layer 3). cityRoot is the city directory (parent of city.toml), used
 // for path resolution.
 func ExpandPacks(cfg *City, fs fsys.FS, cityRoot string, rigFormulaDirs map[string][]string) error {
+	return expandPacksWithLocks(cfg, fs, cityRoot, rigFormulaDirs, nil)
+}
+
+func expandPacksWithLocks(cfg *City, fs fsys.FS, cityRoot string, rigFormulaDirs map[string][]string, packsLock map[string]LockEntry) error {
 	var expanded []Agent
 	for i := range cfg.Rigs {
 		rig := &cfg.Rigs[i]
@@ -78,7 +82,7 @@ func ExpandPacks(cfg *City, fs fsys.FS, cityRoot string, rigFormulaDirs map[stri
 				}
 			}
 
-			agents, namedSessions, providers, services, topoDirs, reqs, globals, err := loadPack(fs, topoPath, topoDir, cityRoot, rig.Name, nil)
+			agents, namedSessions, providers, services, topoDirs, reqs, globals, err := loadPackWithLocks(fs, topoPath, topoDir, cityRoot, rig.Name, nil, packsLock)
 			if err != nil {
 				return fmt.Errorf("rig %q pack %q: %w", rig.Name, ref, err)
 			}
@@ -148,14 +152,14 @@ func ExpandPacks(cfg *City, fs fsys.FS, cityRoot string, rigFormulaDirs map[stri
 			for _, bindingName := range importNames {
 				imp := rig.Imports[bindingName]
 
-				impDir, err := resolvePackRef(imp.Source, cityRoot, cityRoot)
+				impDir, err := resolveImportRef(fs, imp.Source, cityRoot, cityRoot, packsLock)
 				if err != nil {
 					return fmt.Errorf("rig %q import %q: %w", rig.Name, bindingName, err)
 				}
 
 				impPath := filepath.Join(impDir, packFile)
-				agents, namedSessions, providers, services, topoDirs, reqs, globals, err := loadPack(
-					fs, impPath, impDir, cityRoot, rig.Name, nil)
+				agents, namedSessions, providers, services, topoDirs, reqs, globals, err := loadPackWithLocks(
+					fs, impPath, impDir, cityRoot, rig.Name, nil, packsLock)
 				if err != nil {
 					return fmt.Errorf("rig %q import %q: %w", rig.Name, bindingName, err)
 				}
@@ -333,6 +337,10 @@ func ExpandPacks(cfg *City, fs fsys.FS, cityRoot string, rigFormulaDirs map[stri
 // (formulaDirs, packRequirements, shadowWarnings, error). cityRoot is
 // the city directory.
 func ExpandCityPacks(cfg *City, fs fsys.FS, cityRoot string) ([]string, []PackRequirement, []string, error) {
+	return expandCityPacksWithLocks(cfg, fs, cityRoot, nil)
+}
+
+func expandCityPacksWithLocks(cfg *City, fs fsys.FS, cityRoot string, packsLock map[string]LockEntry) ([]string, []PackRequirement, []string, error) {
 	topos := cfg.Workspace.Includes
 	hasImports := len(cfg.Imports) > 0
 	if len(topos) == 0 && !hasImports {
@@ -371,7 +379,7 @@ func ExpandCityPacks(cfg *City, fs fsys.FS, cityRoot string) ([]string, []PackRe
 			}
 		}
 
-		agents, namedSessions, providers, services, topoDirs, reqs, globals, err := loadPackWithCache(fs, topoPath, topoDir, cityRoot, "", nil, cache)
+		agents, namedSessions, providers, services, topoDirs, reqs, globals, err := loadPackWithCacheAndLock(fs, topoPath, topoDir, cityRoot, "", nil, cache, packsLock)
 		if err != nil {
 			// pack.toml may be missing if the pack was removed upstream after
 			// the repo was fetched. Skip gracefully.
@@ -432,14 +440,14 @@ func ExpandCityPacks(cfg *City, fs fsys.FS, cityRoot string) ([]string, []PackRe
 			// Unlike V1 includes (which skip gracefully for missing remote
 			// subpaths), V2 imports are always fatal on missing source.
 			// A typo in [imports.X].source should not be silently ignored.
-			impDir, err := resolvePackRef(imp.Source, cityRoot, cityRoot)
+			impDir, err := resolveImportRef(fs, imp.Source, cityRoot, cityRoot, packsLock)
 			if err != nil {
 				return nil, nil, nil, fmt.Errorf("city import %q: %w", bindingName, err)
 			}
 
 			impPath := filepath.Join(impDir, packFile)
-			agents, namedSessions, providers, services, topoDirs, reqs, globals, err := loadPackWithCache(
-				fs, impPath, impDir, cityRoot, "", nil, cache)
+			agents, namedSessions, providers, services, topoDirs, reqs, globals, err := loadPackWithCacheAndLock(
+				fs, impPath, impDir, cityRoot, "", nil, cache, packsLock)
 			if err != nil {
 				return nil, nil, nil, fmt.Errorf("city import %q: %w", bindingName, err)
 			}
@@ -805,10 +813,18 @@ type packLoadResult struct {
 }
 
 func loadPack(fs fsys.FS, topoPath, topoDir, cityRoot, rigName string, seen map[string]bool) ([]Agent, []NamedSession, map[string]ProviderSpec, []Service, []string, []PackRequirement, []ResolvedPackGlobal, error) {
-	return loadPackWithCache(fs, topoPath, topoDir, cityRoot, rigName, seen, nil)
+	return loadPackWithLocks(fs, topoPath, topoDir, cityRoot, rigName, seen, nil)
+}
+
+func loadPackWithLocks(fs fsys.FS, topoPath, topoDir, cityRoot, rigName string, seen map[string]bool, packsLock map[string]LockEntry) ([]Agent, []NamedSession, map[string]ProviderSpec, []Service, []string, []PackRequirement, []ResolvedPackGlobal, error) {
+	return loadPackWithCacheAndLock(fs, topoPath, topoDir, cityRoot, rigName, seen, nil, packsLock)
 }
 
 func loadPackWithCache(fs fsys.FS, topoPath, topoDir, cityRoot, rigName string, seen map[string]bool, cache *packLoadCache) ([]Agent, []NamedSession, map[string]ProviderSpec, []Service, []string, []PackRequirement, []ResolvedPackGlobal, error) {
+	return loadPackWithCacheAndLock(fs, topoPath, topoDir, cityRoot, rigName, seen, cache, nil)
+}
+
+func loadPackWithCacheAndLock(fs fsys.FS, topoPath, topoDir, cityRoot, rigName string, seen map[string]bool, cache *packLoadCache, packsLock map[string]LockEntry) ([]Agent, []NamedSession, map[string]ProviderSpec, []Service, []string, []PackRequirement, []ResolvedPackGlobal, error) {
 	// Initialize seen set on first call.
 	if seen == nil {
 		seen = make(map[string]bool)
@@ -878,8 +894,8 @@ func loadPackWithCache(fs fsys.FS, topoPath, topoDir, cityRoot, rigName string, 
 		}
 
 		incTopoPath := filepath.Join(incTopoDir, packFile)
-		incAgents, incNamedSessions, incProviders, incServices, incTopoDirs, incReqs, incGlobals, err := loadPackWithCache(
-			fs, incTopoPath, incTopoDir, cityRoot, rigName, seen, cache)
+		incAgents, incNamedSessions, incProviders, incServices, incTopoDirs, incReqs, incGlobals, err := loadPackWithCacheAndLock(
+			fs, incTopoPath, incTopoDir, cityRoot, rigName, seen, cache, packsLock)
 		if err != nil {
 			return nil, nil, nil, nil, nil, nil, nil, fmt.Errorf("include %q: %w", inc, err)
 		}
@@ -916,14 +932,14 @@ func loadPackWithCache(fs fsys.FS, topoPath, topoDir, cityRoot, rigName string, 
 		// Resolve the import source. For now, only local paths are
 		// supported. Remote sources require the cache populated by
 		// gc import install (which we don't have yet).
-		impDir, err := resolvePackRef(imp.Source, topoDir, cityRoot)
+		impDir, err := resolveImportRef(fs, imp.Source, topoDir, cityRoot, packsLock)
 		if err != nil {
 			return nil, nil, nil, nil, nil, nil, nil, fmt.Errorf("import %q: %w", bindingName, err)
 		}
 
 		impPath := filepath.Join(impDir, packFile)
-		impAgents, impNamedSessions, impProviders, impServices, impTopoDirs, impReqs, impGlobals, err := loadPackWithCache(
-			fs, impPath, impDir, cityRoot, rigName, seen, cache)
+		impAgents, impNamedSessions, impProviders, impServices, impTopoDirs, impReqs, impGlobals, err := loadPackWithCacheAndLock(
+			fs, impPath, impDir, cityRoot, rigName, seen, cache, packsLock)
 		if err != nil {
 			return nil, nil, nil, nil, nil, nil, nil, fmt.Errorf("import %q: %w", bindingName, err)
 		}

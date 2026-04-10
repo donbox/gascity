@@ -46,6 +46,10 @@ func LoadWithIncludes(fs fsys.FS, path string, extraIncludes ...string) (*City, 
 	}
 
 	cityRoot := filepath.Dir(path)
+	packsLock, err := ReadPacksLock(fs, cityRoot)
+	if err != nil {
+		return nil, nil, err
+	}
 	prov := newProvenance(path)
 	prov.Warnings = append(prov.Warnings, rootWarnings...)
 	root.ResolvedWorkspaceName = filepath.Base(cityRoot)
@@ -192,7 +196,7 @@ func LoadWithIncludes(fs fsys.FS, path string, extraIncludes ...string) (*City, 
 	resolveNamedPacks(root, cityRoot)
 
 	// Expand city packs before patches (so patches can target city-topo agents).
-	cityTopoFormulas, cityReqs, shadowWarnings, ctErr := ExpandCityPacks(root, fs, cityRoot)
+	cityTopoFormulas, cityReqs, shadowWarnings, ctErr := expandCityPacksWithLocks(root, fs, cityRoot, packsLock)
 	if ctErr != nil {
 		return nil, nil, ctErr
 	}
@@ -221,7 +225,7 @@ func LoadWithIncludes(fs fsys.FS, path string, extraIncludes ...string) (*City, 
 	// Expand rig packs after patches (pack agents get rig overrides).
 	rigFormulaDirs := make(map[string][]string)
 	if HasPackRigs(root.Rigs) {
-		if err := ExpandPacks(root, fs, cityRoot, rigFormulaDirs); err != nil {
+		if err := expandPacksWithLocks(root, fs, cityRoot, rigFormulaDirs, packsLock); err != nil {
 			return nil, nil, fmt.Errorf("expanding packs: %w", err)
 		}
 		// Track pack-expanded agents in provenance.
