@@ -1354,7 +1354,8 @@ gc rig
 Register an external project directory as a rig.
 
 Initializes beads database, installs agent hooks if configured,
-generates cross-rig routes, and appends the rig to city.toml.
+generates cross-rig routes, records portable rig definition in
+city.toml, and stores machine-local rig binding in .gc/site.toml.
 If the target directory doesn't exist, it is created. Use --include
 to apply a pack directory that defines the rig's agent configuration.
 
@@ -1455,7 +1456,8 @@ gc rig restart [name]
 
 ## gc rig resume
 
-Resume a suspended rig by clearing suspended in city.toml.
+Resume a suspended rig by clearing the machine-local suspended binding in
+.gc/site.toml.
 
 The reconciler will start the rig's agents on its next tick.
 
@@ -1473,7 +1475,8 @@ gc rig status [name]
 
 ## gc rig suspend
 
-Suspend a rig by setting suspended=true in city.toml.
+Suspend a rig by setting the machine-local suspended binding in
+.gc/site.toml.
 
 All agents scoped to the suspended rig are effectively suspended —
 the reconciler skips them and gc hook returns empty. The rig's beads

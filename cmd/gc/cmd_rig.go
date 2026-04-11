@@ -60,7 +60,8 @@ func newRigAddCmd(stdout, stderr io.Writer) *cobra.Command {
 		Long: `Register an external project directory as a rig.
 
 Initializes beads database, installs agent hooks if configured,
-generates cross-rig routes, and appends the rig to city.toml.
+generates cross-rig routes, records portable rig definition in city.toml,
+and stores machine-local rig binding in .gc/site.toml.
 If the target directory doesn't exist, it is created. Use --include
 to apply a pack directory that defines the rig's agent configuration.
 
@@ -131,9 +132,8 @@ func cmdRigAdd(args []string, include, nameOverride, prefixOverride string, star
 }
 
 // doRigAdd is the pure logic for "gc rig add". Operations are ordered so that
-// city.toml is written last — if any earlier step fails, config is unchanged.
-// This prevents partial-state bugs where city.toml lists a rig but the rig's
-// infrastructure (beads, routes) was never created.
+// the portable city.toml entry and machine-local .gc/site.toml binding are
+// only committed after infrastructure succeeds.
 func doRigAdd(fs fsys.FS, cityPath, rigPath, include, nameOverride, prefixOverride string, startSuspended bool, stdout, stderr io.Writer) int {
 	// Validate prefix format: hyphens break beadPrefix() which splits on
 	// the first '-' to extract the rig prefix from a bead ID.
@@ -196,7 +196,7 @@ func doRigAdd(fs fsys.FS, cityPath, rigPath, include, nameOverride, prefixOverri
 			}
 			if filepath.Clean(existPath) != filepath.Clean(rigPath) {
 				fmt.Fprintf(stderr, "gc rig add: rig %q already registered at %s (not %s)\n", //nolint:errcheck // best-effort stderr
-					name, r.Path, rigPath)
+					name, existPath, rigPath)
 				return 1
 			}
 			reAdd = true
@@ -225,9 +225,9 @@ func doRigAdd(fs fsys.FS, cityPath, rigPath, include, nameOverride, prefixOverri
 	if existingPrefix, ok := readBeadsPrefix(fs, rigPath); ok && existingPrefix != prefix {
 		if reAdd {
 			// On re-add, --prefix is ignored (we use the existing rig's
-			// configured prefix). Direct the user to edit city.toml.
-			fmt.Fprintf(stderr, "gc rig add: rig %q has bead prefix %q but city.toml has %q; "+ //nolint:errcheck // best-effort stderr
-				"edit city.toml to set prefix = %q, or remove %s/.beads to reinitialize\n",
+			// configured prefix). Direct the user to edit the local binding.
+			fmt.Fprintf(stderr, "gc rig add: rig %q has bead prefix %q but the local rig binding has %q; "+ //nolint:errcheck // best-effort stderr
+				"edit .gc/site.toml to set prefix = %q, or remove %s/.beads to reinitialize\n",
 				name, existingPrefix, prefix, existingPrefix, rigPath)
 		} else {
 			fmt.Fprintf(stderr, "gc rig add: rig %q already has bead prefix %q (requested %q); "+ //nolint:errcheck // best-effort stderr
@@ -246,7 +246,7 @@ func doRigAdd(fs fsys.FS, cityPath, rigPath, include, nameOverride, prefixOverri
 		// Only warn for non-default values to avoid spurious warnings when
 		// re-running without flags (e.g., plain "gc rig add /path").
 		if startSuspended && startSuspended != existingRig.Suspended {
-			fmt.Fprintf(stderr, "gc rig add: warning: --start-suspended ignored (existing: suspended=%v); edit city.toml to change\n", //nolint:errcheck // best-effort stderr
+			fmt.Fprintf(stderr, "gc rig add: warning: --start-suspended ignored (existing: suspended=%v); edit .gc/site.toml to change\n", //nolint:errcheck // best-effort stderr
 				existingRig.Suspended)
 		}
 		if include != "" && (len(existingRig.Includes) == 0 || existingRig.Includes[0] != include) {
@@ -254,7 +254,7 @@ func doRigAdd(fs fsys.FS, cityPath, rigPath, include, nameOverride, prefixOverri
 				include, existingRig.Includes)
 		}
 		if prefixOverride != "" && strings.ToLower(prefixOverride) != existingRig.EffectivePrefix() {
-			fmt.Fprintf(stderr, "gc rig add: warning: --prefix=%s ignored (existing: %s); edit city.toml to change\n", //nolint:errcheck // best-effort stderr
+			fmt.Fprintf(stderr, "gc rig add: warning: --prefix=%s ignored (existing: %s); edit .gc/site.toml to change\n", //nolint:errcheck // best-effort stderr
 				prefixOverride, existingRig.EffectivePrefix())
 		}
 	} else {
@@ -332,17 +332,8 @@ func doRigAdd(fs fsys.FS, cityPath, rigPath, include, nameOverride, prefixOverri
 		fmt.Fprintf(stderr, "gc rig add: %v\n", err) //nolint:errcheck // best-effort stderr
 		return 1
 	}
-	if err := writeSiteBindingsFS(fs, cityPath, siteBindings); err != nil {
-		fmt.Fprintf(stderr, "gc rig add: writing site bindings: %v\n", err) //nolint:errcheck // best-effort stderr
-		return 1
-	}
-	data, err := cfg.Marshal()
-	if err != nil {
-		fmt.Fprintf(stderr, "gc rig add: marshaling config: %v\n", err) //nolint:errcheck // best-effort stderr
-		return 1
-	}
-	if err := fs.WriteFile(tomlPath, data, 0o644); err != nil {
-		fmt.Fprintf(stderr, "gc rig add: writing config: %v\n", err) //nolint:errcheck // best-effort stderr
+	if err := writeCityAndSiteBindingsFS(fs, cityPath, tomlPath, cfg, siteBindings); err != nil {
+		fmt.Fprintf(stderr, "gc rig add: writing rig binding: %v\n", err) //nolint:errcheck // best-effort stderr
 		return 1
 	}
 
@@ -546,7 +537,7 @@ func newRigSuspendCmd(stdout, stderr io.Writer) *cobra.Command {
 	return &cobra.Command{
 		Use:   "suspend [name]",
 		Short: "Suspend a rig (reconciler will skip its agents)",
-		Long: `Suspend a rig by setting suspended=true in city.toml.
+		Long: `Suspend a rig by setting the machine-local suspended binding in .gc/site.toml.
 
 All agents scoped to the suspended rig are effectively suspended —
 the reconciler skips them and gc hook returns empty. The rig's beads
@@ -592,7 +583,7 @@ func cmdRigSuspend(args []string, stdout, stderr io.Writer) int {
 	return doRigSuspend(fsys.OSFS{}, cityPath, rigName, stdout, stderr)
 }
 
-// doRigSuspend sets suspended=true on the named rig in city.toml.
+// doRigSuspend sets suspended=true in the machine-local rig binding.
 // Accepts an injected FS for testability.
 func doRigSuspend(fs fsys.FS, cityPath, rigName string, stdout, stderr io.Writer) int {
 	tomlPath := filepath.Join(cityPath, "city.toml")
@@ -622,16 +613,7 @@ func doRigSuspend(fs fsys.FS, cityPath, rigName string, stdout, stderr io.Writer
 
 	setRigBindingSuspended(siteBindings, rigName, true)
 	canonicalizeRigBindings(cfg)
-	if err := writeSiteBindingsFS(fs, cityPath, siteBindings); err != nil {
-		fmt.Fprintf(stderr, "gc rig suspend: %v\n", err) //nolint:errcheck // best-effort stderr
-		return 1
-	}
-	content, err := cfg.Marshal()
-	if err != nil {
-		fmt.Fprintf(stderr, "gc rig suspend: %v\n", err) //nolint:errcheck // best-effort stderr
-		return 1
-	}
-	if err := fs.WriteFile(tomlPath, content, 0o644); err != nil {
+	if err := writeCityAndSiteBindingsFS(fs, cityPath, tomlPath, cfg, siteBindings); err != nil {
 		fmt.Fprintf(stderr, "gc rig suspend: %v\n", err) //nolint:errcheck // best-effort stderr
 		return 1
 	}
@@ -644,7 +626,7 @@ func newRigResumeCmd(stdout, stderr io.Writer) *cobra.Command {
 	return &cobra.Command{
 		Use:   "resume [name]",
 		Short: "Resume a suspended rig",
-		Long: `Resume a suspended rig by clearing suspended in city.toml.
+		Long: `Resume a suspended rig by clearing the machine-local suspended binding in .gc/site.toml.
 
 The reconciler will start the rig's agents on its next tick.`,
 		Args: cobra.ArbitraryArgs,
@@ -688,7 +670,7 @@ func cmdRigResume(args []string, stdout, stderr io.Writer) int {
 	return doRigResume(fsys.OSFS{}, cityPath, rigName, stdout, stderr)
 }
 
-// doRigResume clears suspended on the named rig in city.toml.
+// doRigResume clears suspended on the named machine-local rig binding.
 // Accepts an injected FS for testability.
 func doRigResume(fs fsys.FS, cityPath, rigName string, stdout, stderr io.Writer) int {
 	tomlPath := filepath.Join(cityPath, "city.toml")
@@ -718,16 +700,7 @@ func doRigResume(fs fsys.FS, cityPath, rigName string, stdout, stderr io.Writer)
 
 	setRigBindingSuspended(siteBindings, rigName, false)
 	canonicalizeRigBindings(cfg)
-	if err := writeSiteBindingsFS(fs, cityPath, siteBindings); err != nil {
-		fmt.Fprintf(stderr, "gc rig resume: %v\n", err) //nolint:errcheck // best-effort stderr
-		return 1
-	}
-	content, err := cfg.Marshal()
-	if err != nil {
-		fmt.Fprintf(stderr, "gc rig resume: %v\n", err) //nolint:errcheck // best-effort stderr
-		return 1
-	}
-	if err := fs.WriteFile(tomlPath, content, 0o644); err != nil {
+	if err := writeCityAndSiteBindingsFS(fs, cityPath, tomlPath, cfg, siteBindings); err != nil {
 		fmt.Fprintf(stderr, "gc rig resume: %v\n", err) //nolint:errcheck // best-effort stderr
 		return 1
 	}
@@ -812,16 +785,7 @@ func cmdRigRemove(rigName string, stdout, stderr io.Writer) int {
 
 	// Write updated config.
 	canonicalizeRigBindings(cfg)
-	if err := writeSiteBindingsFS(fsys.OSFS{}, cityPath, siteBindings); err != nil {
-		fmt.Fprintf(stderr, "gc rig remove: %v\n", err) //nolint:errcheck // best-effort stderr
-		return 1
-	}
-	content, err := cfg.Marshal()
-	if err != nil {
-		fmt.Fprintf(stderr, "gc rig remove: %v\n", err) //nolint:errcheck // best-effort stderr
-		return 1
-	}
-	if err := os.WriteFile(tomlPath, content, 0o644); err != nil {
+	if err := writeCityAndSiteBindingsFS(fsys.OSFS{}, cityPath, tomlPath, cfg, siteBindings); err != nil {
 		fmt.Fprintf(stderr, "gc rig remove: %v\n", err) //nolint:errcheck // best-effort stderr
 		return 1
 	}

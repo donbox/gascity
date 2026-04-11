@@ -13,9 +13,24 @@ func loadSiteBindingsFS(fs fsys.FS, cityPath string) (*config.SiteBindings, erro
 	return config.LoadSiteBindings(fs, cityPath)
 }
 
+func marshalSiteBindings(bindings *config.SiteBindings) ([]byte, bool, error) {
+	if bindings == nil || len(bindings.Rigs) == 0 {
+		return nil, false, nil
+	}
+	data, err := bindings.Marshal()
+	if err != nil {
+		return nil, false, err
+	}
+	return data, true, nil
+}
+
 func writeSiteBindingsFS(fs fsys.FS, cityPath string, bindings *config.SiteBindings) error {
 	path := citylayout.SiteBindingFilePath(cityPath)
-	if bindings == nil || len(bindings.Rigs) == 0 {
+	data, ok, err := marshalSiteBindings(bindings)
+	if err != nil {
+		return err
+	}
+	if !ok {
 		if err := fs.Remove(path); err != nil && !os.IsNotExist(err) {
 			return err
 		}
@@ -24,11 +39,62 @@ func writeSiteBindingsFS(fs fsys.FS, cityPath string, bindings *config.SiteBindi
 	if err := fs.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	data, err := bindings.Marshal()
+	return fs.WriteFile(path, data, 0o644)
+}
+
+func writeCityAndSiteBindingsFS(fs fsys.FS, cityPath, tomlPath string, cfg *config.City, bindings *config.SiteBindings) error {
+	cityData, err := cfg.Marshal()
 	if err != nil {
 		return err
 	}
-	return fs.WriteFile(path, data, 0o644)
+	sitePath := citylayout.SiteBindingFilePath(cityPath)
+	siteData, hasSiteData, err := marshalSiteBindings(bindings)
+	if err != nil {
+		return err
+	}
+
+	// Commit city.toml before the live site binding so a failed city write
+	// never leaves runtime behavior changed by .gc/site.toml alone.
+	originalCity, err := fs.ReadFile(tomlPath)
+	if err != nil {
+		return err
+	}
+	originalSite, siteReadErr := fs.ReadFile(sitePath)
+	hadSite := siteReadErr == nil
+	if siteReadErr != nil && !os.IsNotExist(siteReadErr) {
+		return siteReadErr
+	}
+
+	if err := fs.WriteFile(tomlPath, cityData, 0o644); err != nil {
+		return err
+	}
+
+	restore := func() {
+		_ = fs.WriteFile(tomlPath, originalCity, 0o644)
+		switch {
+		case hadSite:
+			_ = fs.WriteFile(sitePath, originalSite, 0o644)
+		default:
+			_ = fs.Remove(sitePath)
+		}
+	}
+
+	if hasSiteData {
+		if err := fs.MkdirAll(filepath.Dir(sitePath), 0o755); err != nil {
+			restore()
+			return err
+		}
+		if err := fs.WriteFile(sitePath, siteData, 0o644); err != nil {
+			restore()
+			return err
+		}
+		return nil
+	}
+	if err := fs.Remove(sitePath); err != nil && !os.IsNotExist(err) {
+		restore()
+		return err
+	}
+	return nil
 }
 
 func seedSiteBindingsFromConfig(bindings *config.SiteBindings, cfg *config.City) {
@@ -40,6 +106,26 @@ func seedSiteBindingsFromConfig(bindings *config.SiteBindings, cfg *config.City)
 			continue
 		}
 		if rig.Path == "" && rig.Prefix == "" && !rig.Suspended {
+			continue
+		}
+		existing := false
+		for i := range bindings.Rigs {
+			if bindings.Rigs[i].Name != rig.Name {
+				continue
+			}
+			existing = true
+			if bindings.Rigs[i].Path == "" {
+				bindings.Rigs[i].Path = rig.Path
+			}
+			if bindings.Rigs[i].Prefix == "" {
+				bindings.Rigs[i].Prefix = rig.Prefix
+			}
+			if bindings.Rigs[i].Suspended == nil && rig.Suspended {
+				bindings.Rigs[i].Suspended = rigBindingBoolPtr(true)
+			}
+			break
+		}
+		if existing {
 			continue
 		}
 		upsertRigSiteBinding(bindings, config.RigSiteBinding{

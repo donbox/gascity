@@ -408,6 +408,66 @@ func TestDoRigAdd_ConfigUnchangedOnInfraFailure(t *testing.T) {
 	}
 }
 
+func TestDoRigAdd_DoesNotWriteSiteBindingWhenCityWriteFails(t *testing.T) {
+	f := fsys.NewFake()
+	cityPath := "/city"
+	tomlPath := filepath.Join(cityPath, "city.toml")
+	f.Dirs[cityPath] = true
+	f.Dirs[filepath.Join(cityPath, ".gc")] = true
+	f.Dirs["/rig"] = true
+	f.Files[tomlPath] = []byte("[workspace]\nname = \"test\"\n\n[[agent]]\nname = \"mayor\"\n")
+	f.Errors[tomlPath] = os.ErrPermission
+
+	var stdout, stderr bytes.Buffer
+	code := doRigAdd(f, cityPath, "/rig", "", "", "", false, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("doRigAdd should fail when city.toml write fails, got %d", code)
+	}
+	if _, ok := f.Files[filepath.Join(cityPath, ".gc", "site.toml")]; ok {
+		t.Fatalf(".gc/site.toml should not be written when city.toml write fails: %s", f.Files[filepath.Join(cityPath, ".gc", "site.toml")])
+	}
+}
+
+func TestDoRigAdd_DuplicateErrorUsesEffectiveMergedPath(t *testing.T) {
+	cityPath := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(cityPath, ".gc"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	effectivePath := filepath.Join(t.TempDir(), "effective-rig")
+	if err := os.MkdirAll(effectivePath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	otherPath := filepath.Join(t.TempDir(), "other-rig")
+	if err := os.MkdirAll(otherPath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	cityToml := "[workspace]\nname = \"test-city\"\n\n[[agent]]\nname = \"mayor\"\n\n[[rigs]]\nname = \"frontend\"\npath = \"/stale/path\"\n"
+	if err := os.WriteFile(filepath.Join(cityPath, "city.toml"), []byte(cityToml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	bindings := &config.SiteBindings{
+		Rigs: []config.RigSiteBinding{{Name: "frontend", Path: effectivePath}},
+	}
+	if err := writeSiteBindingsFS(fsys.OSFS{}, cityPath, bindings); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := doRigAdd(fsys.OSFS{}, cityPath, otherPath, "", "frontend", "", false, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("expected duplicate-rig failure, got %d", code)
+	}
+	errMsg := stderr.String()
+	if !strings.Contains(errMsg, effectivePath) {
+		t.Fatalf("duplicate error should mention effective merged path %q, got: %s", effectivePath, errMsg)
+	}
+	if strings.Contains(errMsg, "/stale/path") {
+		t.Fatalf("duplicate error should not mention stale raw city.toml path: %s", errMsg)
+	}
+}
+
 func TestDoRigList_WithRigs(t *testing.T) {
 	cityPath := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(cityPath, ".gc"), 0o755); err != nil {
