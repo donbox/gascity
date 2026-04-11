@@ -3275,6 +3275,44 @@ prompt_template = "prompts/mayor.md"
 	}
 }
 
+func TestDoPrimeWithDiscoveredCityAgent(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, ".gc"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "pack.toml"), []byte("[pack]\nname = \"backstage\"\nschema = 2\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "agents", "ada"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	promptContent := "You are Ada.\n"
+	if err := os.WriteFile(filepath.Join(dir, "agents", "ada", "prompt.template.md"), []byte(promptContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	toml := `[workspace]
+name = "test-city"
+`
+	if err := os.WriteFile(filepath.Join(dir, "city.toml"), []byte(toml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	orig, _ := os.Getwd()
+	t.Cleanup(func() { _ = os.Chdir(orig) })
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := doPrime([]string{"ada"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("doPrime = %d, want 0; stderr: %s", code, stderr.String())
+	}
+	if stdout.String() != promptContent {
+		t.Errorf("stdout = %q, want %q", stdout.String(), promptContent)
+	}
+}
+
 func TestDoPrimeWithUnknownAgent(t *testing.T) {
 	// Set up a temp city with a mayor agent.
 	dir := t.TempDir()

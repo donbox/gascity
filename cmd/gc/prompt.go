@@ -51,7 +51,10 @@ func renderPrompt(fs fsys.FS, cityPath, cityName, templatePath string, ctx Promp
 	if templatePath == "" {
 		return ""
 	}
-	sourcePath := filepath.Join(cityPath, templatePath)
+	sourcePath := templatePath
+	if !filepath.IsAbs(sourcePath) {
+		sourcePath = filepath.Join(cityPath, templatePath)
+	}
 	data, err := fs.ReadFile(sourcePath)
 	if err != nil {
 		return ""

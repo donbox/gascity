@@ -59,6 +59,15 @@ func TestRenderPromptBasicVars(t *testing.T) {
 	}
 }
 
+func TestRenderPromptAbsolutePath(t *testing.T) {
+	f := fsys.NewFake()
+	f.Files["/city/agents/ada/prompt.template.md"] = []byte("Agent: {{ .AgentName }}\n")
+	got := renderPrompt(f, "/city", "", "/city/agents/ada/prompt.template.md", PromptContext{AgentName: "ada"}, "", io.Discard, nil, nil, nil)
+	if got != "Agent: ada\n" {
+		t.Errorf("renderPrompt(absolute path) = %q, want %q", got, "Agent: ada\n")
+	}
+}
+
 func TestRenderPromptLegacyTemplateSuffixStillRenders(t *testing.T) {
 	f := fsys.NewFake()
 	f.Files["/city/prompts/test.md.tmpl"] = []byte("Agent: {{ .AgentName }}\n")
