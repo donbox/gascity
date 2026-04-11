@@ -75,8 +75,8 @@ The important change from 0.13.5 is that most definitions are done based on dire
 and directories:
 
 - `[[agent]]` definitions move to `agents/<name>/`
-- `[formulas]` directory wiring gives way to `formulas/<name>.formula.toml`
-- order definitions move to `orders/<name>.order.toml`
+- `[formulas]` directory wiring gives way to `formulas/<name>.toml`
+- order definitions move to `orders/<name>.toml`
 - `[[commands]]` definitions move to `commands/<name>/`
 - `[[doctor]]` definitions move to `doctor/<name>/`
 
@@ -134,10 +134,6 @@ the authoritative statement of desired installed state, and normal load
 should use local materialized content. If that content is missing, Gas
 City should repair from local cache first and then from the remote
 source if needed.
-
-The planned command surface for checking and repairing this state is
-`gc import check`. That missing feature is tracked in
-[#575](https://github.com/gastownhall/gascity/issues/575).
 
 That is the core change:
 
@@ -214,8 +210,6 @@ my-city/
 [imports.my-helper]
 source = "./assets/local-packs/my-helper"
 ```
-
-// I'm a little confused. I could swear that we had both per-rig import as well as "default rig imports". Am i misremembering? Either way can you check and make sure all is correct
 
 ### Change rig-specific composition from include to import
 
@@ -370,13 +364,10 @@ agents/
 wake_mode = "fresh"
 ```
 
-### Move the default provider into `[agents]`
-
-> **Pending potential change**: [#580: We need to scrub field names..](https://github.com/gastownhall/gascity/issues/580). Something seems fishy here.
-
+### Move the default provider into `[agent_defaults]`
 
 In Gas City 0.13.5, the default provider lived on `[workspace]`. In Gas
-City 0.13.6, that default belongs on `[agents]` in `pack.toml`.
+City 0.13.6, that default belongs on `[agent_defaults]` in `pack.toml`.
 
 
 
@@ -405,7 +396,7 @@ After:
 
 ```toml
 # pack.toml
-[agents]
+[agent_defaults]
 provider = "claude"
 ```
 
@@ -430,10 +421,7 @@ that differ can still override it locally.
 
 ### Add other shared defaults
 
-> **Pending potential change**: [#580: We need to scrub field names and default behavior..](https://github.com/gastownhall/gascity/issues/580). Something seems fishy here.
-
-
-Provider is not the only thing that can move into `[agents]`.
+Provider is not the only thing that can move into `[agent_defaults]`.
 
 Before:
 
@@ -454,7 +442,7 @@ After:
 
 ```toml
 # pack.toml
-[agents]
+[agent_defaults]
 wake_mode = "fresh"
 ```
 
@@ -470,7 +458,7 @@ The same pattern applies to other agent defaults that belong at pack
 scope, such as `model`, `default_sling_formula`, `allow_overlay`, and
 `allow_env_override`.
 
-In 0.13.6, the supported pack-wide defaults under `[agents]` are:
+In 0.13.6, the supported pack-wide defaults under `[agent_defaults]` are:
 
 - `provider`
 - `model`
@@ -508,17 +496,14 @@ agents/
 If you are migrating a city, city-local agents are still just agents in
 the root city pack.
 
-> **Pending potential  change**: [#582: Do we require the .tmpl extension to trigger template processing](https://github.com/gastownhall/gascity/issues/582)
-
 Prompt processing now follows an explicit file-extension rule:
 
 - `prompt.md` is plain Markdown
-- `prompt.md.tmpl` is rendered through the template engine
+- `prompt.template.md` is rendered through the template engine
 
 So if your old prompt relied on template expansion, rename it to
-`prompt.md.tmpl` as part of the migration. If it is plain prompt
+`prompt.template.md` as part of the migration. If it is plain prompt
 content, keep it as `prompt.md`.
-> **Pending potential change**: The .tmpl issue again.
 
 ## Formulas
 
@@ -536,17 +521,15 @@ dir = "formulas"
 
 ```text
 formulas/
-└── build-review.formula.toml
+└── build-review.toml
 ```
 
 After:
 
 ```text
 formulas/
-└── build-review.formula.toml
+└── build-review.toml
 ```
-
-> **Pending potential change**: [#581: Do we need the infix for this and orders.](https://github.com/gastownhall/gascity/issues/581)
 
 The file shape stays familiar. What changes is that the directory is now
 the convention instead of something you wire up in TOML.  If your city.toml file pointed formulas to any other directory, you'll need to move them to the `formulas/` directory.
@@ -576,17 +559,13 @@ After:
 
 ```text
 orders/
-└── nightly-sync.order.toml
+└── nightly-sync.toml
 ```
 
 This gives a consistent pair:
 
-- `formulas/<name>.formula.toml`
-- `orders/<name>.order.toml`
-
-The extra noun in the filename is intentional. Gas City 0.13.6 uses the
-`name.noun.toml` pattern for file-based definitions so the file is
-self-describing even outside its directory context.
+- `formulas/<name>.toml`
+- `orders/<name>.toml`
 
 ## Commands
 
@@ -955,9 +934,7 @@ Examples include:
 - missing expected files in recognized definition directories
 - malformed command or doctor entries
 - invalid path references
-
-> **Pending potential change**: [#575: Import cache and materialization validation is a separate concern. That
-work should land under `gc import check`, not under `gc doctor`.](https://github.com/gastownhall/gascity/issues/575).
+- missing or stale imported pack materialization
 
 ## Reference: Gas City 0.13.5 `city.toml` elements to 0.13.6
 
@@ -973,7 +950,7 @@ schema, plus the qualified rows that matter most during migration.
 | `[providers.*]` | Named provider presets | Usually move to `[providers.*]` in the root city `pack.toml`, unless the setting is truly deployment-only. |
 | `[packs.*]` |Named remote pack sources used by includes | Collapse into `[imports.*]` entries. There should no longer be a separate `[packs.*]` registry in `city.toml`. |
 | `[[agent]]` | Inline agent definitions | Move to `agents/<name>/`, with optional `agent.toml`. |
-| `agent.prompt_template` | Path to agent prompt | Move to `agents/<name>/prompt.md`. |
+| `agent.prompt_template` | Path to agent prompt | Move to `agents/<name>/prompt.md` for plain prompts, or `agents/<name>/prompt.template.md` when template processing is needed. |
 | `agent.overlay_dir` | Path to overlay content | Move content to `agents/<name>/overlay/` or pack-wide `overlays/`. |
 | `agent.session_setup_script` | Path to setup script | Keep as a path-valued field, but point at a pack-local file, usually in the agent's directory, or `assets/` if it's a shared script. |
 | `agent.namepool` | Path to names file | Move toward agent-local content such as `agents/<name>/names.txt` if retained. |
@@ -1000,7 +977,7 @@ schema, plus the qualified rows that matter most during migration.
 | `[session_sleep]` | Sleep policy defaults | Keep in `city.toml`. |
 | `[convergence]` | Convergence limits | Keep in `city.toml`. |
 | `[[service]]` | Workspace-owned service declarations | Keep in `city.toml` if they are deployment-owned services. |
-| `[agent_defaults]` | Defaults applied to agents in this city | Move to `[agents]` in the root city `pack.toml`. |
+| `[agent_defaults]` | Defaults applied to agents in this city | Move to `[agent_defaults]` in the root city `pack.toml`. |
 
 ## Reference: Gas City 0.13.5 top-level directories to 0.13.6
 
@@ -1008,11 +985,11 @@ This is the filesystem companion to the `city.toml` table above.
 
 | Old directory or pattern | What it meant in 0.13.5 | New home or action |
 |---|---|---|
-| `prompts/` | Shared bucket of prompt templates addressed by path | Move prompt content into `agents/<name>/prompt.md`. |
+| `prompts/` | Shared bucket of prompt templates addressed by path | Move prompt content into `agents/<name>/prompt.md` or `agents/<name>/prompt.template.md`. |
 | `scripts/` | Shared bucket of helper and entrypoint scripts | Do not preserve as a standard top-level directory. Put entrypoint scripts next to what uses them, and put general helpers under `assets/`. |
 | `formulas/` | Formula directory, sometimes path-wired via TOML | Keep as the fixed top-level `formulas/` convention. |
-| `formulas/orders/` | Nested order definitions under formulas | Move to top-level `orders/` using flat `*.order.toml` files. |
-| `orders/` | Top-level order directory in some cities | Standardize on this location, but use flat `orders/<name>.order.toml` files. |
+| `formulas/orders/` | Nested order definitions under formulas | Move to top-level `orders/` using flat `*.toml` files. |
+| `orders/` | Top-level order directory in some cities | Standardize on this location, but use flat `orders/<name>.toml` files. |
 | `overlays/` | Pack-wide overlay bucket | Keep as top-level `overlays/`. |
 | `overlay/` | Singular overlay directory seen in some older packs | Remove or migrate to `overlays/` or `agents/<name>/overlay/`. |
 | `namepools/` | Shared bucket of agent name pools | Move toward agent-local files if retained. |
@@ -1038,7 +1015,7 @@ This is the compact lookup table for migrating old shareable packs.
 | `pack.includes` | Pack-to-pack composition | Replace with `[imports.*]` in `pack.toml`. |
 | `[imports.*]` | Named imports in transitional configs | Keep in `pack.toml`. This is the new composition surface. |
 | `[[agent]]` | Inline pack agent definitions | Move to `agents/<name>/`, with optional `agent.toml`. |
-| `agent.prompt_template` | Agent prompt file path | Move to `agents/<name>/prompt.md`. |
+| `agent.prompt_template` | Agent prompt file path | Move to `agents/<name>/prompt.md` for plain prompts, or `agents/<name>/prompt.template.md` when template processing is needed. |
 | `agent.overlay_dir` | Agent overlay path | Move content to `agents/<name>/overlay/` or `overlays/`. |
 | `agent.session_setup_script` | Agent setup script path | Keep as a path-valued field pointing at a pack-local file. |
 | `[[named_session]]` | Pack-defined named sessions | Keep in `pack.toml`. |
@@ -1050,7 +1027,7 @@ This is the compact lookup table for migrating old shareable packs.
 | `doctor.script` | Path to doctor entrypoint | Keep as a pack-local path, usually `doctor/<name>/run.sh`. |
 | `[[commands]]` | Pack command inventory | Move toward `commands/<name>/run.sh` by default, with optional `command.toml` when needed. |
 | `commands.script` | Path to command entrypoint | Keep as a pack-local path, usually `commands/<name>/run.sh`. |
-| `[agents]` | Pack-wide agent defaults in transitional configs | Keep in `pack.toml`. |
+| `[agents]` | Transitional alias for pack-wide agent defaults | Use `[agent_defaults]` as the canonical documented surface in `pack.toml`. |
 
 ## Suggested migration order
 
