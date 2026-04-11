@@ -10,7 +10,6 @@ import (
 	"strings"
 
 	"github.com/gastownhall/gascity/internal/config"
-	"github.com/gastownhall/gascity/internal/fsys"
 	"github.com/spf13/cobra"
 )
 
@@ -48,7 +47,7 @@ func doBd(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 
-	cfg, err := config.Load(fsys.OSFS{}, filepath.Join(cityPath, "city.toml"))
+	cfg, err := loadCityConfig(cityPath)
 	if err != nil {
 		fmt.Fprintf(stderr, "gc bd: loading config: %v\n", err) //nolint:errcheck // best-effort stderr
 		return 1

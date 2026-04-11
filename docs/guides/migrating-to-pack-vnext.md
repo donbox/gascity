@@ -469,9 +469,9 @@ schema, plus the qualified rows that matter most during migration.
 | `agent.namepool` | Path to names file | Move toward agent-local content such as `agents/<name>/namepool.txt` if retained. |
 | `[[named_session]]` | Named reusable sessions | Move to `[[named_session]]` in the root city `pack.toml`. |
 | `[[rigs]]` | Rig deployment entries | Keep in `city.toml`. |
-| `rigs.path` | Machine-local project binding | Managed site binding, not portable pack definition. |
-| `rigs.prefix` | Derived rig prefix | Managed site binding, not portable pack definition. |
-| `rigs.suspended` | Operational toggle | Managed site binding, not portable pack definition. |
+| `rigs.path` | Machine-local project binding | Managed site binding, not portable pack definition. Runtime prefers `.gc/site.toml`. |
+| `rigs.prefix` | Derived rig prefix | Managed site binding, not portable pack definition. Runtime prefers `.gc/site.toml`. |
+| `rigs.suspended` | Operational toggle | Managed site binding, not portable pack definition. Runtime prefers `.gc/site.toml`. |
 | `rigs.includes` | Rig-scoped pack composition | Move to rig-scoped imports in `city.toml`. |
 | `rigs.overrides` | Rig-specific customization of imported agents | Keep as rig-level deployment customization in `city.toml`. |
 | `[patches]` | Post-merge modifications | Move pack-definition patches to `pack.toml`. Keep rig-specific patches with the rig in `city.toml`. |

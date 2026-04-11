@@ -325,6 +325,15 @@ func LoadWithIncludes(fs fsys.FS, path string, extraIncludes ...string) (*City, 
 		root.Daemon.FormulaV2 = true
 	}
 
+	siteBindings, err := LoadSiteBindings(fs, cityRoot)
+	if err != nil {
+		return nil, nil, err
+	}
+	ApplySiteBindings(root, siteBindings)
+	if len(siteBindings.Rigs) > 0 {
+		prov.Sources = append(prov.Sources, citylayout.SiteBindingFilePath(cityRoot))
+	}
+
 	return root, prov, nil
 }
 

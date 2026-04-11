@@ -13,6 +13,7 @@ const (
 	CityConfigFile = "city.toml"
 
 	RuntimeRoot = ".gc"
+	SiteBindingFile = ".gc/site.toml"
 
 	PromptsRoot  = "prompts"
 	FormulasRoot = "formulas"
@@ -58,6 +59,12 @@ func HasRuntimeRoot(dir string) bool {
 func RuntimePath(cityRoot string, rel ...string) string {
 	parts := append([]string{cityRoot, RuntimeRoot}, rel...)
 	return filepath.Join(parts...)
+}
+
+// SiteBindingFilePath returns the canonical path to the machine-local site
+// binding file for a city.
+func SiteBindingFilePath(cityRoot string) string {
+	return filepath.Join(cityRoot, SiteBindingFile)
 }
 
 // SystemPath joins rel under the city system root.

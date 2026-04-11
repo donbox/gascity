@@ -170,13 +170,27 @@ func doRigAdd(fs fsys.FS, cityPath, rigPath, include, nameOverride, prefixOverri
 		fmt.Fprintf(stderr, "gc rig add: loading config: %v\n", err) //nolint:errcheck // best-effort stderr
 		return 1
 	}
+	siteBindings, err := loadSiteBindingsFS(fs, cityPath)
+	if err != nil {
+		fmt.Fprintf(stderr, "gc rig add: loading site bindings: %v\n", err) //nolint:errcheck // best-effort stderr
+		return 1
+	}
+	seedSiteBindingsFromConfig(siteBindings, cfg)
+	effectiveCfg := cityWithSiteBindings(cfg, siteBindings)
 
 	// Check for existing rig with same name.
 	var reAdd bool
 	var existingRig *config.Rig
 	for i, r := range cfg.Rigs {
 		if r.Name == name {
-			existPath := r.Path
+			existingRig = findRigByName(effectiveCfg.Rigs, name)
+			if existingRig == nil {
+				existingRig = &cfg.Rigs[i]
+			}
+			existPath := ""
+			if existingRig != nil {
+				existPath = existingRig.Path
+			}
 			if !filepath.IsAbs(existPath) {
 				existPath = filepath.Join(cityPath, existPath)
 			}
@@ -186,7 +200,6 @@ func doRigAdd(fs fsys.FS, cityPath, rigPath, include, nameOverride, prefixOverri
 				return 1
 			}
 			reAdd = true
-			existingRig = &cfg.Rigs[i]
 			break
 		}
 	}
@@ -289,24 +302,8 @@ func doRigAdd(fs fsys.FS, cityPath, rigPath, include, nameOverride, prefixOverri
 	}
 
 	// --- Phase 2: Commit config (only after infrastructure succeeds) ---
-	// Skipped for re-adds (config already has this rig).
-
 	if !reAdd {
-		// Add rig to config and validate before writing.
-		// Store the canonicalized (lowercased) prefix, not the raw flag
-		// value. EffectivePrefix() returns the stored value as-is, and
-		// downstream consumers (findRigByPrefix, ValidateRigs) must agree
-		// on casing with .beads/config.yaml (always lowercase).
-		storedPrefix := ""
-		if prefixOverride != "" {
-			storedPrefix = strings.ToLower(prefixOverride)
-		}
-		rig := config.Rig{
-			Name:      name,
-			Path:      rigPath,
-			Prefix:    storedPrefix,
-			Suspended: startSuspended,
-		}
+		rig := config.Rig{Name: name}
 		switch {
 		case include != "":
 			rig.Includes = []string{include}
@@ -314,33 +311,51 @@ func doRigAdd(fs fsys.FS, cityPath, rigPath, include, nameOverride, prefixOverri
 			rig.Includes = append([]string{}, cfg.Workspace.DefaultRigIncludes...)
 		}
 		cfg.Rigs = append(cfg.Rigs, rig)
-		if err := config.ValidateRigs(cfg.Rigs, config.EffectiveHQPrefix(cfg)); err != nil {
-			fmt.Fprintf(stderr, "gc rig add: %v\n", err) //nolint:errcheck // best-effort stderr
-			return 1
-		}
-
-		data, err := cfg.Marshal()
-		if err != nil {
-			fmt.Fprintf(stderr, "gc rig add: marshaling config: %v\n", err) //nolint:errcheck // best-effort stderr
-			return 1
-		}
-
-		if err := fs.WriteFile(tomlPath, data, 0o644); err != nil {
-			fmt.Fprintf(stderr, "gc rig add: writing config: %v\n", err) //nolint:errcheck // best-effort stderr
-			return 1
-		}
+	}
+	storedPrefix := ""
+	if !reAdd && prefixOverride != "" {
+		storedPrefix = strings.ToLower(prefixOverride)
+	}
+	upsertRigSiteBinding(siteBindings, config.RigSiteBinding{
+		Name:   name,
+		Path:   rigPath,
+		Prefix: storedPrefix,
+	})
+	if reAdd {
+		setRigBindingSuspended(siteBindings, name, existingRig.Suspended)
+	} else {
+		setRigBindingSuspended(siteBindings, name, startSuspended)
+	}
+	canonicalizeRigBindings(cfg)
+	effectiveCfg = cityWithSiteBindings(cfg, siteBindings)
+	if err := config.ValidateRigs(effectiveCfg.Rigs, config.EffectiveHQPrefix(effectiveCfg)); err != nil {
+		fmt.Fprintf(stderr, "gc rig add: %v\n", err) //nolint:errcheck // best-effort stderr
+		return 1
+	}
+	if err := writeSiteBindingsFS(fs, cityPath, siteBindings); err != nil {
+		fmt.Fprintf(stderr, "gc rig add: writing site bindings: %v\n", err) //nolint:errcheck // best-effort stderr
+		return 1
+	}
+	data, err := cfg.Marshal()
+	if err != nil {
+		fmt.Fprintf(stderr, "gc rig add: marshaling config: %v\n", err) //nolint:errcheck // best-effort stderr
+		return 1
+	}
+	if err := fs.WriteFile(tomlPath, data, 0o644); err != nil {
+		fmt.Fprintf(stderr, "gc rig add: writing config: %v\n", err) //nolint:errcheck // best-effort stderr
+		return 1
 	}
 
 	// --- Phase 3: Routes (uses config, best-effort) ---
 
 	// Ensure rig paths are absolute before route generation.
-	resolveRigPaths(cityPath, cfg.Rigs)
+	resolveRigPaths(cityPath, effectiveCfg.Rigs)
 	// Keep newly added or re-added rigs on the city-managed Dolt endpoint,
 	// including rigs that live outside the city directory.
-	syncConfiguredDoltPortFiles(cityPath, cfg.Rigs)
+	syncConfiguredDoltPortFiles(cityPath, effectiveCfg.Rigs)
 
 	// Generate routes for all rigs (HQ + all configured rigs).
-	allRigs := collectRigRoutes(cityPath, cfg)
+	allRigs := collectRigRoutes(cityPath, effectiveCfg)
 	if err := writeAllRoutes(allRigs); err != nil {
 		fmt.Fprintf(stderr, "gc rig add: writing routes: %v\n", err) //nolint:errcheck // best-effort stderr
 		return 1
@@ -586,11 +601,16 @@ func doRigSuspend(fs fsys.FS, cityPath, rigName string, stdout, stderr io.Writer
 		fmt.Fprintf(stderr, "gc rig suspend: %v\n", err) //nolint:errcheck // best-effort stderr
 		return 1
 	}
+	siteBindings, err := loadSiteBindingsFS(fs, cityPath)
+	if err != nil {
+		fmt.Fprintf(stderr, "gc rig suspend: %v\n", err) //nolint:errcheck // best-effort stderr
+		return 1
+	}
+	seedSiteBindingsFromConfig(siteBindings, cfg)
 
 	found := false
 	for i := range cfg.Rigs {
 		if cfg.Rigs[i].Name == rigName {
-			cfg.Rigs[i].Suspended = true
 			found = true
 			break
 		}
@@ -600,6 +620,12 @@ func doRigSuspend(fs fsys.FS, cityPath, rigName string, stdout, stderr io.Writer
 		return 1
 	}
 
+	setRigBindingSuspended(siteBindings, rigName, true)
+	canonicalizeRigBindings(cfg)
+	if err := writeSiteBindingsFS(fs, cityPath, siteBindings); err != nil {
+		fmt.Fprintf(stderr, "gc rig suspend: %v\n", err) //nolint:errcheck // best-effort stderr
+		return 1
+	}
 	content, err := cfg.Marshal()
 	if err != nil {
 		fmt.Fprintf(stderr, "gc rig suspend: %v\n", err) //nolint:errcheck // best-effort stderr
@@ -671,11 +697,16 @@ func doRigResume(fs fsys.FS, cityPath, rigName string, stdout, stderr io.Writer)
 		fmt.Fprintf(stderr, "gc rig resume: %v\n", err) //nolint:errcheck // best-effort stderr
 		return 1
 	}
+	siteBindings, err := loadSiteBindingsFS(fs, cityPath)
+	if err != nil {
+		fmt.Fprintf(stderr, "gc rig resume: %v\n", err) //nolint:errcheck // best-effort stderr
+		return 1
+	}
+	seedSiteBindingsFromConfig(siteBindings, cfg)
 
 	found := false
 	for i := range cfg.Rigs {
 		if cfg.Rigs[i].Name == rigName {
-			cfg.Rigs[i].Suspended = false
 			found = true
 			break
 		}
@@ -685,6 +716,12 @@ func doRigResume(fs fsys.FS, cityPath, rigName string, stdout, stderr io.Writer)
 		return 1
 	}
 
+	setRigBindingSuspended(siteBindings, rigName, false)
+	canonicalizeRigBindings(cfg)
+	if err := writeSiteBindingsFS(fs, cityPath, siteBindings); err != nil {
+		fmt.Fprintf(stderr, "gc rig resume: %v\n", err) //nolint:errcheck // best-effort stderr
+		return 1
+	}
 	content, err := cfg.Marshal()
 	if err != nil {
 		fmt.Fprintf(stderr, "gc rig resume: %v\n", err) //nolint:errcheck // best-effort stderr
@@ -734,6 +771,13 @@ func cmdRigRemove(rigName string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "gc rig remove: loading config: %v\n", err) //nolint:errcheck // best-effort stderr
 		return 1
 	}
+	siteBindings, err := loadSiteBindingsFS(fsys.OSFS{}, cityPath)
+	if err != nil {
+		fmt.Fprintf(stderr, "gc rig remove: loading site bindings: %v\n", err) //nolint:errcheck // best-effort stderr
+		return 1
+	}
+	seedSiteBindingsFromConfig(siteBindings, cfg)
+	effectiveCfg := cityWithSiteBindings(cfg, siteBindings)
 
 	// Find and remove the rig from config.
 	var removedPath string
@@ -741,11 +785,19 @@ func cmdRigRemove(rigName string, stdout, stderr io.Writer) int {
 	filtered := cfg.Rigs[:0]
 	for _, r := range cfg.Rigs {
 		if r.Name == rigName {
-			removedPath = r.Path
-			if !filepath.IsAbs(removedPath) {
-				removedPath = filepath.Join(cityPath, removedPath)
+			if effectiveRig := findRigByName(effectiveCfg.Rigs, rigName); effectiveRig != nil {
+				removedPath = effectiveRig.Path
+				if !filepath.IsAbs(removedPath) {
+					removedPath = filepath.Join(cityPath, removedPath)
+				}
+				removedPath = filepath.Clean(removedPath)
+			} else if r.Path != "" {
+				removedPath = r.Path
+				if !filepath.IsAbs(removedPath) {
+					removedPath = filepath.Join(cityPath, removedPath)
+				}
+				removedPath = filepath.Clean(removedPath)
 			}
-			removedPath = filepath.Clean(removedPath)
 			found = true
 			continue
 		}
@@ -756,8 +808,14 @@ func cmdRigRemove(rigName string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	cfg.Rigs = filtered
+	removeRigSiteBinding(siteBindings, rigName)
 
 	// Write updated config.
+	canonicalizeRigBindings(cfg)
+	if err := writeSiteBindingsFS(fsys.OSFS{}, cityPath, siteBindings); err != nil {
+		fmt.Fprintf(stderr, "gc rig remove: %v\n", err) //nolint:errcheck // best-effort stderr
+		return 1
+	}
 	content, err := cfg.Marshal()
 	if err != nil {
 		fmt.Fprintf(stderr, "gc rig remove: %v\n", err) //nolint:errcheck // best-effort stderr
@@ -796,8 +854,9 @@ func cmdRigRemove(rigName string, stdout, stderr io.Writer) int {
 	}
 
 	// Regenerate routes.
-	resolveRigPaths(cityPath, cfg.Rigs)
-	allRigs := collectRigRoutes(cityPath, cfg)
+	effectiveCfg = cityWithSiteBindings(cfg, siteBindings)
+	resolveRigPaths(cityPath, effectiveCfg.Rigs)
+	allRigs := collectRigRoutes(cityPath, effectiveCfg)
 	if err := writeAllRoutes(allRigs); err != nil {
 		fmt.Fprintf(stderr, "gc rig remove: warning: writing routes: %v\n", err) //nolint:errcheck // best-effort stderr
 	}

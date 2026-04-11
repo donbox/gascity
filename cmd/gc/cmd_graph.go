@@ -3,14 +3,11 @@ package main
 import (
 	"fmt"
 	"io"
-	"path/filepath"
 	"sort"
 	"strings"
 	"text/tabwriter"
 
 	"github.com/gastownhall/gascity/internal/beads"
-	"github.com/gastownhall/gascity/internal/config"
-	"github.com/gastownhall/gascity/internal/fsys"
 	"github.com/spf13/cobra"
 )
 
@@ -74,7 +71,7 @@ func openRigAwareStore(args []string, stderr io.Writer, cmdName string) (beads.S
 
 	// Try to resolve rig from the first bead arg's prefix.
 	if len(args) > 0 {
-		cfg, cfgErr := config.Load(fsys.OSFS{}, filepath.Join(cityPath, "city.toml"))
+			cfg, cfgErr := loadCityConfig(cityPath)
 		if cfgErr == nil {
 			if storeDir := slingDirForBead(cfg, cityPath, args[0]); storeDir != cityPath {
 				store := bdStoreForRig(storeDir, cityPath, cfg)

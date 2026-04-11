@@ -443,9 +443,9 @@ Rig defines an external project registered in the city.
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
 | `name` | string | **yes** |  | Name is the unique identifier for this rig. |
-| `path` | string | **yes** |  | Path is the absolute filesystem path to the rig's repository. |
-| `prefix` | string |  |  | Prefix overrides the auto-derived bead ID prefix for this rig. |
-| `suspended` | boolean |  |  | Suspended prevents the reconciler from spawning agents in this rig. Toggle with gc rig suspend/resume. |
+| `path` | string |  |  | Path is a legacy fallback for the rig's machine-local repository binding. Runtime loading prefers `.gc/site.toml`. |
+| `prefix` | string |  |  | Prefix is a legacy fallback for the rig's machine-local bead prefix binding. Runtime loading prefers `.gc/site.toml`. |
+| `suspended` | boolean |  |  | Suspended is a legacy fallback for the rig's machine-local operational binding. Runtime loading prefers `.gc/site.toml`; toggle with `gc rig suspend`/`gc rig resume`. |
 | `formulas_dir` | string |  |  | FormulasDir is a rig-local formula directory (Layer 4). Overrides pack formulas for this rig by filename. Relative paths resolve against the city directory. |
 | `includes` | []string |  |  | Includes lists pack directories or URLs for this rig. Replaces the older pack/packs fields. Each entry is a local path, a git source//sub#ref URL, or a GitHub tree URL. |
 | `max_active_sessions` | integer |  |  | MaxActiveSessions is the rig-level cap on total concurrent sessions across all agents in this rig. Nil means inherit from workspace (or unlimited). |

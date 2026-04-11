@@ -66,7 +66,7 @@ func (c *CityConfigCheck) Name() string { return "city-config" }
 // Run parses city.toml and checks workspace.name.
 func (c *CityConfigCheck) Run(ctx *CheckContext) *CheckResult {
 	r := &CheckResult{Name: c.Name()}
-	cfg, err := config.Load(fsys.OSFS{}, filepath.Join(ctx.CityPath, "city.toml"))
+	cfg, _, err := config.LoadWithIncludes(fsys.OSFS{}, filepath.Join(ctx.CityPath, "city.toml"))
 	if err != nil {
 		r.Status = StatusError
 		r.Message = fmt.Sprintf("city.toml parse error: %v", err)
@@ -1172,7 +1172,7 @@ func (c *RigIndexCheck) Run(ctx *CheckContext) *CheckResult {
 	}
 
 	reg := supervisor.NewRegistry(regPath)
-	cfg, err := config.Load(fsys.OSFS{}, filepath.Join(ctx.CityPath, "city.toml"))
+	cfg, _, err := config.LoadWithIncludes(fsys.OSFS{}, filepath.Join(ctx.CityPath, "city.toml"))
 	if err != nil {
 		r.Status = StatusWarning
 		r.Message = fmt.Sprintf("cannot load city config: %v", err)

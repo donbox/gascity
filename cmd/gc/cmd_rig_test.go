@@ -14,6 +14,15 @@ import (
 	"github.com/gastownhall/gascity/internal/fsys"
 )
 
+func readSiteBindingsForTest(t *testing.T, cityPath string) *config.SiteBindings {
+	t.Helper()
+	bindings, err := config.LoadSiteBindings(fsys.OSFS{}, cityPath)
+	if err != nil {
+		t.Fatalf("loading site bindings: %v", err)
+	}
+	return bindings
+}
+
 func TestDoRigAdd_Basic(t *testing.T) {
 	cityPath := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(cityPath, ".gc"), 0o755); err != nil {
@@ -49,13 +58,19 @@ func TestDoRigAdd_Basic(t *testing.T) {
 		t.Errorf("output missing completion: %s", output)
 	}
 
-	// Verify city.toml was updated with [[rigs]] entry.
-	data, err := os.ReadFile(filepath.Join(cityPath, "city.toml"))
+	rawCfg, err := config.Load(fsys.OSFS{}, filepath.Join(cityPath, "city.toml"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(data), "my-frontend") {
-		t.Errorf("city.toml should contain rig name:\n%s", data)
+	if len(rawCfg.Rigs) != 1 || rawCfg.Rigs[0].Name != "my-frontend" {
+		t.Fatalf("city.toml rigs = %+v, want canonical rig entry", rawCfg.Rigs)
+	}
+	if rawCfg.Rigs[0].Path != "" {
+		t.Errorf("city.toml path = %q, want empty (machine-local binding moved to .gc/site.toml)", rawCfg.Rigs[0].Path)
+	}
+	bindings := readSiteBindingsForTest(t, cityPath)
+	if len(bindings.Rigs) != 1 || bindings.Rigs[0].Path != rigPath {
+		t.Fatalf("site bindings = %+v, want path %q", bindings.Rigs, rigPath)
 	}
 }
 
@@ -108,12 +123,6 @@ func TestDoRigAdd_IdempotentSameNameSamePath(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Save original config content.
-	origData, err := os.ReadFile(filepath.Join(cityPath, "city.toml"))
-	if err != nil {
-		t.Fatal(err)
-	}
-
 	t.Setenv("GC_DOLT", "skip")
 	t.Setenv("GC_BEADS", "file")
 
@@ -131,13 +140,19 @@ func TestDoRigAdd_IdempotentSameNameSamePath(t *testing.T) {
 		t.Errorf("output should say re-initialized: %s", output)
 	}
 
-	// city.toml must be unchanged (no duplicate rig or polecat added).
-	newData, err := os.ReadFile(filepath.Join(cityPath, "city.toml"))
+	rawCfg, err := config.Load(fsys.OSFS{}, filepath.Join(cityPath, "city.toml"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(newData) != string(origData) {
-		t.Errorf("city.toml should be unchanged on re-add.\nBefore:\n%s\nAfter:\n%s", origData, newData)
+	if len(rawCfg.Rigs) != 1 || rawCfg.Rigs[0].Name != "my-frontend" {
+		t.Fatalf("city.toml rigs = %+v, want one rig", rawCfg.Rigs)
+	}
+	if rawCfg.Rigs[0].Path != "" {
+		t.Errorf("city.toml path = %q, want empty after re-add migration", rawCfg.Rigs[0].Path)
+	}
+	bindings := readSiteBindingsForTest(t, cityPath)
+	if len(bindings.Rigs) != 1 || bindings.Rigs[0].Path != rigPath {
+		t.Fatalf("site bindings = %+v, want path %q", bindings.Rigs, rigPath)
 	}
 }
 
@@ -532,13 +547,19 @@ func TestDoRigSuspend(t *testing.T) {
 		t.Errorf("output = %q, want suspend message", stdout.String())
 	}
 
-	// Verify config written with suspended=true.
-	cfg, err := config.Load(fsys.OSFS{}, filepath.Join(cityPath, "city.toml"))
+	cfg, err := loadCityConfigFS(fsys.OSFS{}, filepath.Join(cityPath, "city.toml"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(cfg.Rigs) != 1 || !cfg.Rigs[0].Suspended {
 		t.Errorf("rig should be suspended, got %+v", cfg.Rigs)
+	}
+	rawCfg, err := config.Load(fsys.OSFS{}, filepath.Join(cityPath, "city.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rawCfg.Rigs[0].Suspended {
+		t.Errorf("city.toml suspended = true, want false (stored in .gc/site.toml)")
 	}
 }
 
@@ -587,13 +608,16 @@ func TestDoRigResume(t *testing.T) {
 		t.Errorf("output = %q, want resume message", stdout.String())
 	}
 
-	// Verify config written with suspended=false.
-	cfg, err := config.Load(fsys.OSFS{}, filepath.Join(cityPath, "city.toml"))
+	cfg, err := loadCityConfigFS(fsys.OSFS{}, filepath.Join(cityPath, "city.toml"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(cfg.Rigs) != 1 || cfg.Rigs[0].Suspended {
 		t.Errorf("rig should not be suspended, got %+v", cfg.Rigs)
+	}
+	bindings := readSiteBindingsForTest(t, cityPath)
+	if len(bindings.Rigs) != 1 || bindings.Rigs[0].Suspended == nil || *bindings.Rigs[0].Suspended {
+		t.Errorf("site bindings suspended = %+v, want explicit false", bindings.Rigs)
 	}
 }
 
@@ -886,8 +910,7 @@ func TestDoRigAdd_ExplicitPrefixResolvesCollision(t *testing.T) {
 		t.Fatalf("doRigAdd returned %d, stderr: %s", code, stderr.String())
 	}
 
-	// Verify the explicit prefix is persisted in city.toml.
-	cfg, err := config.Load(fsys.OSFS{}, filepath.Join(cityPath, "city.toml"))
+	cfg, err := loadCityConfigFS(fsys.OSFS{}, filepath.Join(cityPath, "city.toml"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -905,6 +928,13 @@ func TestDoRigAdd_ExplicitPrefixResolvesCollision(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("rig my-foo not found in config")
+	}
+	rawCfg, err := config.Load(fsys.OSFS{}, filepath.Join(cityPath, "city.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rawCfg.Rigs[1].Prefix != "" {
+		t.Errorf("city.toml prefix = %q, want empty", rawCfg.Rigs[1].Prefix)
 	}
 }
 
@@ -1122,7 +1152,6 @@ func TestDoRigAdd_PrefixCanonicalizedToLowercase(t *testing.T) {
 		t.Errorf("prefix should be lowercased to 'ab', got stdout: %s", stdout.String())
 	}
 
-	// Verify city.toml stores the lowercase prefix (not raw "AB").
 	cfg, err := loadCityConfigFS(fsys.OSFS{}, filepath.Join(cityPath, "city.toml"))
 	if err != nil {
 		t.Fatalf("loading city.toml: %v", err)
@@ -1130,13 +1159,17 @@ func TestDoRigAdd_PrefixCanonicalizedToLowercase(t *testing.T) {
 	for _, r := range cfg.Rigs {
 		if r.Name == "my-rig" {
 			if r.Prefix != "ab" {
-				t.Errorf("city.toml Prefix = %q, want %q", r.Prefix, "ab")
+				t.Errorf("runtime Prefix = %q, want %q", r.Prefix, "ab")
 			}
 			if r.EffectivePrefix() != "ab" {
 				t.Errorf("EffectivePrefix() = %q, want %q", r.EffectivePrefix(), "ab")
 			}
 			break
 		}
+	}
+	bindings := readSiteBindingsForTest(t, cityPath)
+	if len(bindings.Rigs) != 1 || bindings.Rigs[0].Prefix != "ab" {
+		t.Fatalf("site bindings = %+v, want lowercase prefix ab", bindings.Rigs)
 	}
 
 	// Verify re-add succeeds (no false-positive conflict with .beads).

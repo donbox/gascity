@@ -172,6 +172,45 @@ path = "/tmp/hw"
 	}
 }
 
+func TestLoadWithIncludes_AppliesSiteBindings(t *testing.T) {
+	fs := fsys.NewFake()
+	fs.Files["/city/city.toml"] = []byte(`
+[workspace]
+name = "test"
+
+[[rigs]]
+name = "frontend"
+path = "/canonical/path"
+`)
+	fs.Files["/city/.gc/site.toml"] = []byte(`
+[[rigs]]
+name = "frontend"
+path = "/local/path"
+prefix = "fe"
+suspended = true
+`)
+
+	cfg, prov, err := LoadWithIncludes(fs, "/city/city.toml")
+	if err != nil {
+		t.Fatalf("LoadWithIncludes: %v", err)
+	}
+	if len(cfg.Rigs) != 1 {
+		t.Fatalf("len(Rigs) = %d, want 1", len(cfg.Rigs))
+	}
+	if cfg.Rigs[0].Path != "/local/path" {
+		t.Errorf("rig path = %q, want site binding path", cfg.Rigs[0].Path)
+	}
+	if cfg.Rigs[0].Prefix != "fe" {
+		t.Errorf("rig prefix = %q, want site binding prefix", cfg.Rigs[0].Prefix)
+	}
+	if !cfg.Rigs[0].Suspended {
+		t.Errorf("rig suspended = false, want true")
+	}
+	if got := prov.Sources[len(prov.Sources)-1]; got != "/city/.gc/site.toml" {
+		t.Errorf("last source = %q, want /city/.gc/site.toml", got)
+	}
+}
+
 func TestLoadWithIncludes_MultipleFragments(t *testing.T) {
 	fs := fsys.NewFake()
 	fs.Files["/city/city.toml"] = []byte(`

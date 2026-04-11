@@ -8,7 +8,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gastownhall/gascity/internal/config"
 	"github.com/gastownhall/gascity/internal/fsys"
 )
 
@@ -209,7 +208,7 @@ func TestRigAnywhere_CmdRigSuspendFromRigDir(t *testing.T) {
 				t.Fatalf("stdout = %q, want rig suspend confirmation", stdout.String())
 			}
 
-			cfg, err := config.Load(fsys.OSFS{}, filepath.Join(fx.cityPath, "city.toml"))
+			cfg, err := loadCityConfigFS(fsys.OSFS{}, filepath.Join(fx.cityPath, "city.toml"))
 			if err != nil {
 				t.Fatalf("load city config: %v", err)
 			}
@@ -283,7 +282,7 @@ func TestRigAnywhere_CmdRigResumeFromRigDir(t *testing.T) {
 				t.Fatalf("stdout = %q, want rig resume confirmation", stdout.String())
 			}
 
-			cfg, err := config.Load(fsys.OSFS{}, filepath.Join(fx.cityPath, "city.toml"))
+			cfg, err := loadCityConfigFS(fsys.OSFS{}, filepath.Join(fx.cityPath, "city.toml"))
 			if err != nil {
 				t.Fatalf("load city config: %v", err)
 			}

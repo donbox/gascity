@@ -95,7 +95,7 @@ func TestRigAnywhere_ResolveContext(t *testing.T) {
 		cityPath := setupCity(t, "beta")
 
 		// Add a rig entry in city.toml so rigFromCwd can resolve it.
-		rigDir := filepath.Join(t.TempDir(), "frontend")
+		rigDir := canonicalTestPath(filepath.Join(t.TempDir(), "frontend"))
 		if err := os.MkdirAll(rigDir, 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -346,7 +346,7 @@ func TestRigAnywhere_ResolveContext(t *testing.T) {
 		gcHome := t.TempDir()
 		t.Setenv("GC_HOME", gcHome)
 
-		rigDir := filepath.Join(t.TempDir(), "shared-rig")
+		rigDir := canonicalTestPath(filepath.Join(t.TempDir(), "shared-rig"))
 		if err := os.MkdirAll(rigDir, 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -446,7 +446,7 @@ func TestRigAnywhere_ResolveContext(t *testing.T) {
 		t.Setenv("GC_HOME", t.TempDir())
 
 		cityPath := setupCity(t, "mu")
-		rigDir := filepath.Join(t.TempDir(), "envrig-dir")
+		rigDir := canonicalTestPath(filepath.Join(t.TempDir(), "envrig-dir"))
 		if err := os.MkdirAll(rigDir, 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -1359,7 +1359,7 @@ func TestRigAnywhere_ResolveRigToContext(t *testing.T) {
 		gcHome := t.TempDir()
 		t.Setenv("GC_HOME", gcHome)
 
-		rigDir := filepath.Join(t.TempDir(), "ambig-rig")
+		rigDir := canonicalTestPath(filepath.Join(t.TempDir(), "ambig-rig"))
 		if err := os.MkdirAll(rigDir, 0o755); err != nil {
 			t.Fatal(err)
 		}
