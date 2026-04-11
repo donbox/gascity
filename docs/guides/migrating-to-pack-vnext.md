@@ -75,8 +75,8 @@ The important change from 0.13.5 is that most definitions are done based on dire
 and directories:
 
 - `[[agent]]` definitions move to `agents/<name>/`
-- `[formulas]` directory wiring gives way to `formulas/<name>.toml`
-- order definitions move to `orders/<name>.toml`
+- `[formulas]` directory wiring gives way to `formulas/<name>.formula.toml`
+- order definitions move to `orders/<name>.order.toml`
 - `[[commands]]` definitions move to `commands/<name>/`
 - `[[doctor]]` definitions move to `doctor/<name>/`
 
@@ -521,14 +521,14 @@ dir = "formulas"
 
 ```text
 formulas/
-└── build-review.toml
+└── build-review.formula.toml
 ```
 
 After:
 
 ```text
 formulas/
-└── build-review.toml
+└── build-review.formula.toml
 ```
 
 The file shape stays familiar. What changes is that the directory is now
@@ -559,13 +559,16 @@ After:
 
 ```text
 orders/
-└── nightly-sync.toml
+└── nightly-sync.order.toml
 ```
 
 This gives a consistent pair:
 
-- `formulas/<name>.toml`
-- `orders/<name>.toml`
+- `formulas/<name>.formula.toml`
+- `orders/<name>.order.toml`
+
+This naming may simplify in a follow-up wave, but for the current
+0.13.6 merge wave the documented convention keeps the existing infixes.
 
 ## Commands
 
@@ -988,8 +991,8 @@ This is the filesystem companion to the `city.toml` table above.
 | `prompts/` | Shared bucket of prompt templates addressed by path | Move prompt content into `agents/<name>/prompt.md` or `agents/<name>/prompt.template.md`. |
 | `scripts/` | Shared bucket of helper and entrypoint scripts | Do not preserve as a standard top-level directory. Put entrypoint scripts next to what uses them, and put general helpers under `assets/`. |
 | `formulas/` | Formula directory, sometimes path-wired via TOML | Keep as the fixed top-level `formulas/` convention. |
-| `formulas/orders/` | Nested order definitions under formulas | Move to top-level `orders/` using flat `*.toml` files. |
-| `orders/` | Top-level order directory in some cities | Standardize on this location, but use flat `orders/<name>.toml` files. |
+| `formulas/orders/` | Nested order definitions under formulas | Move to top-level `orders/` using flat `*.order.toml` files. |
+| `orders/` | Top-level order directory in some cities | Standardize on this location, but use flat `orders/<name>.order.toml` files. |
 | `overlays/` | Pack-wide overlay bucket | Keep as top-level `overlays/`. |
 | `overlay/` | Singular overlay directory seen in some older packs | Remove or migrate to `overlays/` or `agents/<name>/overlay/`. |
 | `namepools/` | Shared bucket of agent name pools | Move toward agent-local files if retained. |
