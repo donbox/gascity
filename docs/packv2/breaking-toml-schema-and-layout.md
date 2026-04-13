@@ -28,20 +28,29 @@ that already drive the reference schema docs:
 
 Until then, keep the wording tied to implemented branch truth.
 
+When a change is concrete enough to show succinctly, the breaking-change
+table should include:
+
+- `Category`
+- `Before`
+- `After`
+
+using short, abstract examples instead of long prose.
+
 ## Implemented Schema And Layout Changes
 
-| Change | 14.0 / V1 behavior | Current implemented behavior | Required migration action | Validation seam |
-|---|---|---|---|---|
-| Root model split | `city.toml` carried definition, deployment, and machine-local concerns together | A city now composes `pack.toml` plus `city.toml`, with `.gc/` as runtime/site state | Move portable definition into `pack.toml`; keep deployment in `city.toml`; keep machine-local state out of authored files | `internal/config/compose.go`, `docs/guides/migrating-to-pack-vnext.md` |
-| Pack composition | V1 composition centered on `includes` / `packs` | Pack composition now centers on `[imports.<binding>]`; rig-scoped composition uses `[rigs.imports.<binding>]` | Rewrite composition to imports and bindings | `internal/config/pack.go`, `internal/config/compose.go`, `cmd/gc/testdata/pack-v2-imports.txtar` |
-| Agent authoring shape | Agents were primarily declared as `[[agent]]` rows in TOML | Agents are convention-discovered from `agents/<name>/` | Move owned agent configuration under `agents/<name>/` | `internal/config/agent_discovery.go`, `docs/guides/migrating-to-pack-vnext.md` |
-| Prompt file semantics | Prompt wiring depended on explicit TOML paths, and plain `.md` often implied templating in practice | `prompt.md` is inert markdown; `prompt.template.md` is the templated form | Rename templated prompts to `prompt.template.md`; keep plain prompts as `prompt.md` | `internal/config/agent_discovery.go`, `cmd/gc/prompt.go` |
-| Overlay and namepool paths | Overlay and namepool paths were commonly wired from TOML | Overlay and namepool are now convention surfaces: `agents/<name>/overlay/` and `agents/<name>/namepool.txt` | Move owned assets into the agent directory | `internal/config/agent_discovery.go` |
-| Template fragment layout | Fragment injection depended on legacy fragment fields | Template fragments now live in `template-fragments/` or `agents/<name>/template-fragments/` | Move reusable template fragments into convention directories | `cmd/gc/prompt.go`, `docs/guides/migrating-to-pack-vnext.md` |
-| Agent defaults placement | Defaults were workspace-shaped and not clearly portable | `[agent_defaults]` is legal in both `pack.toml` and `city.toml`, with city winning on merge; current runtime inheritance remains limited to implemented fields | Move forward defaults into `[agent_defaults]`, but check the migration guide and skew analysis for the currently inherited subset | `internal/config/compose.go`, `internal/config/config.go`, `docs/packv2/skew-analysis.md` |
-| Formula filename truth | Formula layout was still being normalized during the rollout | Current formula truth is `formulas/<name>.formula.toml` | Rename formula files to the flat `.formula.toml` convention used on this branch | `cmd/gc/system_formulas.go`, `internal/citylayout/layout.go` |
-| Order filename truth | Order layout was still being normalized during the rollout | Current order truth is `orders/<name>.order.toml` | Rename order files to the flat `.order.toml` convention used on this branch | `internal/orders/discovery.go`, `cmd/gc/cmd_order.go` |
-| Command and doctor directories | Commands and doctor checks were mixed between TOML-declared inventory and ad hoc script paths | Commands now live under `commands/`; doctor checks live under `doctor/`, each with local entry directories and minimal manifests | Move operational entrypoints under `commands/` and `doctor/` and follow the local `run.sh` / `help.md` convention | `internal/config/command_discovery.go`, `internal/config/doctor_discovery.go`, `docs/packv2/breaking-gc-command-surface.md` |
+| Category | Change | Before | After | Required migration action | Validation seam |
+|---|---|---|---|---|---|
+| Root model | Root model split | one `city.toml` carried everything | `pack.toml` + `city.toml` + `.gc/` | Move portable definition into `pack.toml`; keep deployment in `city.toml`; keep machine-local state out of authored files | `internal/config/compose.go`, `docs/guides/migrating-to-pack-vnext.md` |
+| Composition | Pack composition | `includes = ["../gastown"]` | `[imports.gastown] source = "../gastown"` | Rewrite composition to imports and bindings | `internal/config/pack.go`, `internal/config/compose.go`, `cmd/gc/testdata/pack-v2-imports.txtar` |
+| Agents | Agent authoring shape | `[[agent]] name = "mayor"` | `agents/mayor/agent.toml` | Move owned agent configuration under `agents/<name>/` | `internal/config/agent_discovery.go`, `docs/guides/migrating-to-pack-vnext.md` |
+| Prompts | Prompt file semantics | `prompt_template = "prompts/mayor.md"` | `agents/mayor/prompt.template.md` | Rename templated prompts to `prompt.template.md`; keep plain prompts as `prompt.md` | `internal/config/agent_discovery.go`, `cmd/gc/prompt.go` |
+| Agent assets | Overlay and namepool paths | `overlay_dir = "overlays/mayor"` and `namepool = "pools/mayor.txt"` | `agents/mayor/overlay/` and `agents/mayor/namepool.txt` | Move owned assets into the agent directory | `internal/config/agent_discovery.go` |
+| Template fragments | Template fragment layout | `global_fragments = ["ops"]` | `template-fragments/ops.md` or `agents/mayor/template-fragments/ops.md` | Move reusable template fragments into convention directories | `cmd/gc/prompt.go`, `docs/guides/migrating-to-pack-vnext.md` |
+| Defaults | Agent defaults placement | `workspace.provider = "claude"` as the obvious defaults bucket | `[agent_defaults]` in `pack.toml` or `city.toml` | Move forward defaults into `[agent_defaults]`, but check the migration guide and skew analysis for the currently inherited subset | `internal/config/compose.go`, `internal/config/config.go`, `docs/packv2/skew-analysis.md` |
+| Formulas | Formula filename truth | mixed or nested formula locations during rollout | `formulas/<name>.formula.toml` | Rename formula files to the flat `.formula.toml` convention used on this branch | `cmd/gc/system_formulas.go`, `internal/citylayout/layout.go` |
+| Orders | Order filename truth | mixed or nested order locations during rollout | `orders/<name>.order.toml` | Rename order files to the flat `.order.toml` convention used on this branch | `internal/orders/discovery.go`, `cmd/gc/cmd_order.go` |
+| Operational entries | Command and doctor directories | `[[commands]]`, `[[doctor]]`, or ad hoc script paths | `commands/...` and `doctor/...` convention directories | Move operational entrypoints under `commands/` and `doctor/` and follow the local `run.sh` / `help.md` convention | `internal/config/command_discovery.go`, `internal/config/doctor_discovery.go`, `docs/packv2/breaking-gc-command-surface.md` |
 
 ## Compatibility And Deferred Notes
 
