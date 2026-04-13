@@ -336,7 +336,7 @@ Patches are distinct from agent definitions — `agents/<name>/` creates YOUR ag
 
 Holds pack-provided CLI command definitions and assets.
 
-Current preferred direction:
+Settled current release shape:
 
 ```text
 commands/
@@ -344,34 +344,39 @@ commands/
 │   ├── run.sh
 │   └── help.md
 └── repo/
+    ├── help.md
+    ├── run.sh
     └── sync/
-        ├── run.sh
-        └── help.md
+        ├── command.toml
+        └── sync.sh
 ```
 
 Key ideas:
 
 - directories define the default command tree
-- each command leaf gets its own local directory
+- a command node may be both runnable and a parent
 - nested directories imply nested command words
 - `run.sh` is the default well-known entrypoint
-- `help.md` is the default well-known help file when present
+- `help.md` is the default well-known help file when present, including on a non-runnable parent node
 - entry-local scripts and help live next to the entrypoint
-- `command.toml` is optional and should exist only when metadata or an explicit override is needed
+- `command.toml` is optional and limited to:
+  - `description`
+  - `run`
 
-This keeps the filesystem shape aligned with the CLI shape while giving each command leaf a local asset scope.
+This keeps the filesystem shape aligned with the CLI shape while giving each command node a local asset scope.
 
 The important split is:
 
 - the user-facing command words come from directory shape by default
 - the local executable and help file can use simple filename convention by default
-- `command.toml` remains available as an escape hatch rather than a requirement
+- `command.toml` remains available only as a minimal escape hatch
+- import binding is the public namespace for discovered pack commands
 
 ### `doctor/`
 
 Holds pack-provided doctor checks and their assets.
 
-Current preferred direction:
+Settled current release shape:
 
 ```text
 doctor/
@@ -394,13 +399,17 @@ Doctor and commands should be designed in tandem. They are structurally sibling 
 The difference is in exposure:
 
 - commands contribute to the `gc` command surface
-- doctor checks contribute to `gc doctor`
+- doctor checks contribute to `gc doctor` under `<binding>:<name>`
 
 As with commands:
 
 - `run.sh` is the default well-known entrypoint
 - `help.md` is the default well-known help file when present
 - the script that actually runs the check should live naturally alongside the manifest rather than depending on a special top-level `scripts/` directory
+- `doctor.toml` is optional and limited to:
+  - `description`
+  - `run`
+- doctor stays flat: one directory is one check
 
 ### `overlays/`
 

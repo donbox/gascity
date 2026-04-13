@@ -66,8 +66,12 @@ func discoveredDoctorFromDir(fs fsys.FS, packDir, checkDir, name, packName strin
 	manifestPath := filepath.Join(checkDir, "doctor.toml")
 	if data, err := fs.ReadFile(manifestPath); err == nil {
 		var manifest doctorManifest
-		if _, err := toml.Decode(string(data), &manifest); err != nil {
+		md, err := toml.Decode(string(data), &manifest)
+		if err != nil {
 			return DiscoveredDoctor{}, false, fmt.Errorf("doctor/%s/doctor.toml: %w", name, err)
+		}
+		if err := manifestUndecodedError(md, filepath.ToSlash(filepath.Join("doctor", name, "doctor.toml"))); err != nil {
+			return DiscoveredDoctor{}, false, err
 		}
 		description = manifest.Description
 		if manifest.Run != "" {

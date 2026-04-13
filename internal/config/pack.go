@@ -88,7 +88,10 @@ func ExpandPacks(cfg *City, fs fsys.FS, cityRoot string, rigFormulaDirs map[stri
 				return fmt.Errorf("rig %q pack %q: [[service]] is only allowed in city-scoped packs", rig.Name, ref)
 			}
 			rigGlobals = append(rigGlobals, globals...)
-			cfg.PackDoctors = appendDiscoveredDoctors(cfg.PackDoctors, cachedPackDoctors(cache, topoDir)...)
+			doctors := stampDefaultDoctorBinding(cachedPackDoctors(cache, topoDir), tcPackName(fs, topoPath))
+			if cfg.PackDoctors, err = appendDiscoveredDoctors(cfg.PackDoctors, doctors...); err != nil {
+				return fmt.Errorf("rig %q pack %q: %w", rig.Name, ref, err)
+			}
 
 			// Validate rig-scoped requirements.
 			for _, req := range reqs {
@@ -166,7 +169,10 @@ func ExpandPacks(cfg *City, fs fsys.FS, cityRoot string, rigFormulaDirs map[stri
 					return fmt.Errorf("rig %q import %q: [[service]] is only allowed in city-scoped packs", rig.Name, bindingName)
 				}
 				rigGlobals = append(rigGlobals, globals...)
-				cfg.PackDoctors = appendDiscoveredDoctors(cfg.PackDoctors, cachedPackDoctors(cache, impDir)...)
+				doctors := stampDefaultDoctorBinding(cachedPackDoctors(cache, impDir), bindingName)
+				if cfg.PackDoctors, err = appendDiscoveredDoctors(cfg.PackDoctors, doctors...); err != nil {
+					return fmt.Errorf("rig %q import %q: %w", rig.Name, bindingName, err)
+				}
 
 				// Stamp binding name on agents and named sessions.
 				// At the rig level, ALL agents from an import get the rig's
@@ -392,8 +398,12 @@ func ExpandCityPacks(cfg *City, fs fsys.FS, cityRoot string) ([]string, []PackRe
 		if packName == "" && len(cachedPackCommands(cache, topoDir)) > 0 {
 			return nil, nil, nil, fmt.Errorf("city pack %q: discovered commands require [pack].name for CLI binding", ref)
 		}
-		cfg.PackCommands = appendDiscoveredCommands(cfg.PackCommands, stampDefaultBinding(cachedPackCommands(cache, topoDir), packName)...)
-		cfg.PackDoctors = appendDiscoveredDoctors(cfg.PackDoctors, cachedPackDoctors(cache, topoDir)...)
+		if cfg.PackCommands, err = appendDiscoveredCommands(cfg.PackCommands, stampDefaultBinding(cachedPackCommands(cache, topoDir), packName)...); err != nil {
+			return nil, nil, nil, fmt.Errorf("city pack %q: %w", ref, err)
+		}
+		if cfg.PackDoctors, err = appendDiscoveredDoctors(cfg.PackDoctors, stampDefaultDoctorBinding(cachedPackDoctors(cache, topoDir), packName)...); err != nil {
+			return nil, nil, nil, fmt.Errorf("city pack %q: %w", ref, err)
+		}
 
 		// Accumulate pack dirs (deduped).
 		allPackDirs = appendUnique(allPackDirs, topoDirs...)
@@ -544,8 +554,12 @@ func ExpandCityPacks(cfg *City, fs fsys.FS, cityRoot string) ([]string, []PackRe
 			allRequires = append(allRequires, reqs...)
 			allGlobals = append(allGlobals, globals...)
 			cfg.Services = append(cfg.Services, services...)
-			cfg.PackCommands = appendDiscoveredCommands(cfg.PackCommands, commands...)
-			cfg.PackDoctors = appendDiscoveredDoctors(cfg.PackDoctors, doctors...)
+			if cfg.PackCommands, err = appendDiscoveredCommands(cfg.PackCommands, commands...); err != nil {
+				return nil, nil, nil, fmt.Errorf("city import %q: %w", bindingName, err)
+			}
+			if cfg.PackDoctors, err = appendDiscoveredDoctors(cfg.PackDoctors, doctors...); err != nil {
+				return nil, nil, nil, fmt.Errorf("city import %q: %w", bindingName, err)
+			}
 			allPackDirs = appendUnique(allPackDirs, topoDirs...)
 
 			// Filter by scope for city expansion.
@@ -934,8 +948,12 @@ func loadPackWithCache(fs fsys.FS, topoPath, topoDir, cityRoot, rigName string, 
 		includedTopoDirs = append(includedTopoDirs, incTopoDirs...)
 		allRequires = append(allRequires, incReqs...)
 		includedGlobals = append(includedGlobals, incGlobals...)
-		includedCommands = append(includedCommands, cachedPackCommands(cache, incTopoDir)...)
-		includedDoctors = append(includedDoctors, cachedPackDoctors(cache, incTopoDir)...)
+		if includedCommands, err = appendDiscoveredCommands(includedCommands, cachedPackCommands(cache, incTopoDir)...); err != nil {
+			return nil, nil, nil, nil, nil, nil, nil, fmt.Errorf("include %q: %w", inc, err)
+		}
+		if includedDoctors, err = appendDiscoveredDoctors(includedDoctors, cachedPackDoctors(cache, incTopoDir)...); err != nil {
+			return nil, nil, nil, nil, nil, nil, nil, fmt.Errorf("include %q: %w", inc, err)
+		}
 
 		// Merge providers: included first, no overwrite.
 		for name, spec := range incProviders {
@@ -1055,8 +1073,12 @@ func loadPackWithCache(fs fsys.FS, topoPath, topoDir, cityRoot, rigName string, 
 		includedTopoDirs = append(includedTopoDirs, impTopoDirs...)
 		allRequires = append(allRequires, impReqs...)
 		includedGlobals = append(includedGlobals, impGlobals...)
-		includedCommands = append(includedCommands, impCommands...)
-		includedDoctors = append(includedDoctors, impDoctors...)
+		if includedCommands, err = appendDiscoveredCommands(includedCommands, impCommands...); err != nil {
+			return nil, nil, nil, nil, nil, nil, nil, fmt.Errorf("import %q: %w", bindingName, err)
+		}
+		if includedDoctors, err = appendDiscoveredDoctors(includedDoctors, impDoctors...); err != nil {
+			return nil, nil, nil, nil, nil, nil, nil, fmt.Errorf("import %q: %w", bindingName, err)
+		}
 
 		for name, spec := range impProviders {
 			if _, exists := includedProviders[name]; !exists {
@@ -1146,8 +1168,12 @@ func loadPackWithCache(fs fsys.FS, topoPath, topoDir, cityRoot, rigName string, 
 	includedAgents = append(includedAgents, agents...)
 	includedNamedSessions = append(includedNamedSessions, namedSessions...)
 	includedServices = append(includedServices, services...)
-	includedCommands = append(includedCommands, commands...)
-	includedDoctors = append(includedDoctors, doctors...)
+	if includedCommands, err = appendDiscoveredCommands(includedCommands, commands...); err != nil {
+		return nil, nil, nil, nil, nil, nil, nil, fmt.Errorf("pack %q commands: %w", tc.Pack.Name, err)
+	}
+	if includedDoctors, err = appendDiscoveredDoctors(includedDoctors, doctors...); err != nil {
+		return nil, nil, nil, nil, nil, nil, nil, fmt.Errorf("pack %q doctor: %w", tc.Pack.Name, err)
+	}
 
 	// Apply pack-level patches to the merged agent list.
 	if !tc.Patches.IsEmpty() {
@@ -1290,44 +1316,68 @@ func agentNameSet(agents []Agent) map[string]bool {
 	return names
 }
 
-func appendDiscoveredCommands(dst []DiscoveredCommand, src ...DiscoveredCommand) []DiscoveredCommand {
+func appendDiscoveredCommands(dst []DiscoveredCommand, src ...DiscoveredCommand) ([]DiscoveredCommand, error) {
 	for _, cmd := range src {
 		duplicate := false
 		for _, existing := range dst {
-			if slices.Equal(existing.Command, cmd.Command) &&
-				existing.BindingName == cmd.BindingName &&
-				existing.RunScript == cmd.RunScript {
+			if !sameDiscoveredCommandIdentity(existing, cmd) {
+				continue
+			}
+			if equivalentDiscoveredCommand(existing, cmd) {
 				duplicate = true
 				break
 			}
+			return nil, fmt.Errorf("command %q in namespace %q has conflicting implementations (%s vs %s)",
+				strings.Join(cmd.Command, " "),
+				discoveredCommandNamespace(cmd),
+				describeDiscoveredCommandImplementation(existing),
+				describeDiscoveredCommandImplementation(cmd),
+			)
 		}
 		if !duplicate {
 			dst = append(dst, cmd)
 		}
 	}
-	return dst
+	return dst, nil
 }
 
-func appendDiscoveredDoctors(dst []DiscoveredDoctor, src ...DiscoveredDoctor) []DiscoveredDoctor {
+func appendDiscoveredDoctors(dst []DiscoveredDoctor, src ...DiscoveredDoctor) ([]DiscoveredDoctor, error) {
 	for _, check := range src {
 		duplicate := false
 		for _, existing := range dst {
-			if existing.Name == check.Name &&
-				existing.BindingName == check.BindingName &&
-				existing.RunScript == check.RunScript {
+			if !sameDiscoveredDoctorIdentity(existing, check) {
+				continue
+			}
+			if equivalentDiscoveredDoctor(existing, check) {
 				duplicate = true
 				break
 			}
+			return nil, fmt.Errorf("doctor %q in namespace %q has conflicting implementations (%s vs %s)",
+				check.Name,
+				discoveredDoctorNamespace(check),
+				describeDiscoveredDoctorImplementation(existing),
+				describeDiscoveredDoctorImplementation(check),
+			)
 		}
 		if !duplicate {
 			dst = append(dst, check)
 		}
 	}
-	return dst
+	return dst, nil
 }
 
 func stampDefaultBinding(commands []DiscoveredCommand, defaultBinding string) []DiscoveredCommand {
 	out := deepCopyCommands(commands)
+	for i := range out {
+		if out[i].BindingName == "" {
+			out[i].BindingName = defaultBinding
+		}
+	}
+	return out
+}
+
+func stampDefaultDoctorBinding(doctors []DiscoveredDoctor, defaultBinding string) []DiscoveredDoctor {
+	out := deepCopyDoctors(doctors)
 	for i := range out {
 		if out[i].BindingName == "" {
 			out[i].BindingName = defaultBinding
@@ -1351,6 +1401,72 @@ func deepCopyDoctors(in []DiscoveredDoctor) []DiscoveredDoctor {
 	out := make([]DiscoveredDoctor, len(in))
 	copy(out, in)
 	return out
+}
+
+func discoveredCommandNamespace(cmd DiscoveredCommand) string {
+	if cmd.BindingName != "" {
+		return cmd.BindingName
+	}
+	return cmd.PackName
+}
+
+func sameDiscoveredCommandIdentity(a, b DiscoveredCommand) bool {
+	return discoveredCommandNamespace(a) == discoveredCommandNamespace(b) &&
+		slices.Equal(a.Command, b.Command)
+}
+
+func equivalentDiscoveredCommand(a, b DiscoveredCommand) bool {
+	return sameDiscoveredCommandIdentity(a, b) &&
+		a.RunScript == b.RunScript &&
+		a.HelpFile == b.HelpFile &&
+		a.Description == b.Description &&
+		a.PackDir == b.PackDir
+}
+
+func describeDiscoveredCommandImplementation(cmd DiscoveredCommand) string {
+	if cmd.RunScript != "" {
+		return cmd.RunScript
+	}
+	if cmd.HelpFile != "" {
+		return cmd.HelpFile
+	}
+	if cmd.SourceDir != "" {
+		return cmd.SourceDir
+	}
+	return "<no-local-implementation>"
+}
+
+func discoveredDoctorNamespace(check DiscoveredDoctor) string {
+	if check.BindingName != "" {
+		return check.BindingName
+	}
+	return check.PackName
+}
+
+func sameDiscoveredDoctorIdentity(a, b DiscoveredDoctor) bool {
+	return discoveredDoctorNamespace(a) == discoveredDoctorNamespace(b) &&
+		a.Name == b.Name
+}
+
+func equivalentDiscoveredDoctor(a, b DiscoveredDoctor) bool {
+	return sameDiscoveredDoctorIdentity(a, b) &&
+		a.RunScript == b.RunScript &&
+		a.HelpFile == b.HelpFile &&
+		a.Description == b.Description &&
+		a.PackDir == b.PackDir
+}
+
+func describeDiscoveredDoctorImplementation(check DiscoveredDoctor) string {
+	if check.RunScript != "" {
+		return check.RunScript
+	}
+	if check.HelpFile != "" {
+		return check.HelpFile
+	}
+	if check.SourceDir != "" {
+		return check.SourceDir
+	}
+	return "<no-local-implementation>"
 }
 
 func tcPackName(fs fsys.FS, topoPath string) string {

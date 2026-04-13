@@ -123,7 +123,9 @@ func LoadWithIncludes(fs fsys.FS, path string, extraIncludes ...string) (*City, 
 		}
 		packCommands = append(packCommands, legacyPackCommands(pc.Commands, cityRoot, pc.Pack.Name)...)
 		if len(packCommands) > 0 {
-			root.PackCommands = appendDiscoveredCommands(root.PackCommands, stampDefaultBinding(packCommands, pc.Pack.Name)...)
+			if root.PackCommands, err = appendDiscoveredCommands(root.PackCommands, stampDefaultBinding(packCommands, pc.Pack.Name)...); err != nil {
+				return nil, nil, fmt.Errorf("city pack.toml commands: %w", err)
+			}
 		}
 
 		packDoctors, err := DiscoverPackDoctors(fs, cityRoot, pc.Pack.Name)
@@ -132,7 +134,9 @@ func LoadWithIncludes(fs fsys.FS, path string, extraIncludes ...string) (*City, 
 		}
 		packDoctors = append(packDoctors, legacyPackDoctors(pc.Doctor, cityRoot, pc.Pack.Name)...)
 		if len(packDoctors) > 0 {
-			root.PackDoctors = appendDiscoveredDoctors(root.PackDoctors, packDoctors...)
+			if root.PackDoctors, err = appendDiscoveredDoctors(root.PackDoctors, stampDefaultDoctorBinding(packDoctors, pc.Pack.Name)...); err != nil {
+				return nil, nil, fmt.Errorf("city pack.toml doctor: %w", err)
+			}
 		}
 
 		// Convention-discovered agents from the city pack root.

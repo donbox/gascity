@@ -250,7 +250,8 @@ All Import fields match spec. No changes needed.
 | 🟢 | Qualified name patch targeting | doc-agent-v2 | `qualifiedNameFromPatch` in patch.go |
 | 🟢 | Import `shadow` field | doc-pack-v2 | Warning/silent logic in pack.go |
 | 🟢 | `orders/` top-level discovery | doc-directory-conventions | `discoverFlatFiles` in orders/discovery.go |
-| 🟢 | `commands/` convention discovery | doc-commands | `DiscoverPackCommands` in command_discovery.go |
+| 🟢 | `commands/` convention discovery and binding-scoped exposure | doc-directory-conventions | `DiscoverPackCommands` in command_discovery.go, CLI registration in cmd_commands.go |
+| 🟢 | `doctor/` convention discovery and binding-scoped identity | doc-directory-conventions | `DiscoverPackDoctors` in doctor_discovery.go, check naming in cmd_doctor.go |
 | 🔴 | `[defaults.rig.imports]` loader support | doc-pack-v2 | Migrate tool writes it, loader ignores it |
 | 🔴 | `gc register --name` flag | doc-pack-v2 | #602 — no flag on register command |
 | 🔴 | `patches/` directory convention | doc-agent-v2 | Not implemented |
