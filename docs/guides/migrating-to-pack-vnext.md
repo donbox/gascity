@@ -23,6 +23,11 @@ pack directory tree.
 > consult `docs/packv2/skew-analysis.md` and
 > `docs/packv2/doc-conformance-matrix.md`.
 >
+> **Breaking-change summaries:** for release-facing summaries of what
+> changed, see:
+> - [`docs/packv2/breaking-gc-command-surface.md`](../packv2/breaking-gc-command-surface.md)
+> - [`docs/packv2/breaking-toml-schema-and-layout.md`](../packv2/breaking-toml-schema-and-layout.md)
+>
 > **NYI in this wave:** the `.gc/` site-binding split is part of the
 > long-term model, but the dedicated `.gc/site.toml` path split is still
 > tracked in [#588](https://github.com/gastownhall/gascity/issues/588).
