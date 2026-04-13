@@ -232,6 +232,102 @@ max_active_sessions = 3
 	}
 }
 
+func TestAppendDiscoveredCommands_ErrorsOnConflictingIdentity(t *testing.T) {
+	dst := []DiscoveredCommand{{
+		BindingName: "ops",
+		Command:     []string{"repo", "sync"},
+		RunScript:   "/packs/one/commands/repo/sync/run.sh",
+		PackDir:     "/packs/one",
+	}}
+
+	_, err := appendDiscoveredCommands(dst, DiscoveredCommand{
+		BindingName: "ops",
+		Command:     []string{"repo", "sync"},
+		RunScript:   "/packs/two/commands/repo/sync/run.sh",
+		PackDir:     "/packs/two",
+	})
+	if err == nil {
+		t.Fatal("appendDiscoveredCommands error = nil, want conflict")
+	}
+	if !strings.Contains(err.Error(), `namespace "ops"`) {
+		t.Fatalf("error = %q, want namespace detail", err.Error())
+	}
+}
+
+func TestAppendDiscoveredCommands_DedupsExactDuplicate(t *testing.T) {
+	dst := []DiscoveredCommand{{
+		BindingName: "ops",
+		Command:     []string{"repo", "sync"},
+		RunScript:   "/packs/one/commands/repo/sync/run.sh",
+		HelpFile:    "/packs/one/commands/repo/sync/help.md",
+		Description: "Sync repo",
+		PackDir:     "/packs/one",
+	}}
+
+	got, err := appendDiscoveredCommands(dst, DiscoveredCommand{
+		BindingName: "ops",
+		Command:     []string{"repo", "sync"},
+		RunScript:   "/packs/one/commands/repo/sync/run.sh",
+		HelpFile:    "/packs/one/commands/repo/sync/help.md",
+		Description: "Sync repo",
+		PackDir:     "/packs/one",
+	})
+	if err != nil {
+		t.Fatalf("appendDiscoveredCommands: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("got %d commands, want 1 after dedup", len(got))
+	}
+}
+
+func TestAppendDiscoveredDoctors_ErrorsOnConflictingIdentity(t *testing.T) {
+	dst := []DiscoveredDoctor{{
+		BindingName: "ops",
+		Name:        "tooling",
+		RunScript:   "/packs/one/doctor/tooling/run.sh",
+		PackDir:     "/packs/one",
+	}}
+
+	_, err := appendDiscoveredDoctors(dst, DiscoveredDoctor{
+		BindingName: "ops",
+		Name:        "tooling",
+		RunScript:   "/packs/two/doctor/tooling/run.sh",
+		PackDir:     "/packs/two",
+	})
+	if err == nil {
+		t.Fatal("appendDiscoveredDoctors error = nil, want conflict")
+	}
+	if !strings.Contains(err.Error(), `namespace "ops"`) {
+		t.Fatalf("error = %q, want namespace detail", err.Error())
+	}
+}
+
+func TestAppendDiscoveredDoctors_DedupsExactDuplicate(t *testing.T) {
+	dst := []DiscoveredDoctor{{
+		BindingName: "ops",
+		Name:        "tooling",
+		RunScript:   "/packs/one/doctor/tooling/run.sh",
+		HelpFile:    "/packs/one/doctor/tooling/help.md",
+		Description: "Check tooling",
+		PackDir:     "/packs/one",
+	}}
+
+	got, err := appendDiscoveredDoctors(dst, DiscoveredDoctor{
+		BindingName: "ops",
+		Name:        "tooling",
+		RunScript:   "/packs/one/doctor/tooling/run.sh",
+		HelpFile:    "/packs/one/doctor/tooling/help.md",
+		Description: "Check tooling",
+		PackDir:     "/packs/one",
+	})
+	if err != nil {
+		t.Fatalf("appendDiscoveredDoctors: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("got %d doctors, want 1 after dedup", len(got))
+	}
+}
+
 func TestExpandPacks_OverrideSuspend(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, dir, "packs/gt/pack.toml", `

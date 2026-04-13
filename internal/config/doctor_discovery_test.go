@@ -2,6 +2,7 @@ package config
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/gastownhall/gascity/internal/fsys"
@@ -35,9 +36,9 @@ func TestDiscoverPackDoctors_ManifestOverride(t *testing.T) {
 
 	writeTestFile(t, packDir, "doctor/binaries/doctor.toml", `
 description = "Check required binaries"
-run = "./scripts/check.sh"
+run = "check.sh"
 `)
-	writeTestFile(t, packDir, "doctor/binaries/scripts/check.sh", "#!/bin/sh\nexit 0\n")
+	writeTestFile(t, packDir, "doctor/binaries/check.sh", "#!/bin/sh\nexit 0\n")
 
 	got, err := DiscoverPackDoctors(fsys.OSFS{}, packDir, "mypk")
 	if err != nil {
@@ -49,7 +50,7 @@ run = "./scripts/check.sh"
 	if got[0].Description != "Check required binaries" {
 		t.Fatalf("Description = %q, want %q", got[0].Description, "Check required binaries")
 	}
-	wantRun := filepath.Join(packDir, "doctor", "binaries", "scripts", "check.sh")
+	wantRun := filepath.Join(packDir, "doctor", "binaries", "check.sh")
 	if got[0].RunScript != wantRun {
 		t.Fatalf("RunScript = %q, want %q", got[0].RunScript, wantRun)
 	}
@@ -116,5 +117,27 @@ func TestDiscoverPackDoctors_PreservesPackDir(t *testing.T) {
 	}
 	if got[0].PackDir != packDir {
 		t.Fatalf("PackDir = %q, want %q", got[0].PackDir, packDir)
+	}
+}
+
+func TestDiscoverPackDoctors_RejectsUnknownManifestField(t *testing.T) {
+	dir := t.TempDir()
+	packDir := filepath.Join(dir, "mypk")
+
+	writeTestFile(t, packDir, "doctor/binaries/doctor.toml", `
+name = "renamed"
+run = "run.sh"
+`)
+	writeTestFile(t, packDir, "doctor/binaries/run.sh", "#!/bin/sh\nexit 0\n")
+
+	_, err := DiscoverPackDoctors(fsys.OSFS{}, packDir, "mypk")
+	if err == nil {
+		t.Fatal("DiscoverPackDoctors error = nil, want unknown field error")
+	}
+	if !strings.Contains(err.Error(), "unknown field") {
+		t.Fatalf("error = %q, want unknown field message", err.Error())
+	}
+	if !strings.Contains(err.Error(), "name") {
+		t.Fatalf("error = %q, want mention of unexpected name field", err.Error())
 	}
 }

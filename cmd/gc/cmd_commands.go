@@ -43,61 +43,66 @@ func addDiscoveredCommandsToRoot(root *cobra.Command, entries []config.Discovere
 }
 
 func newDiscoveredNamespaceCmd(binding string, entries []config.DiscoveredCommand, cityPath, cityName string, stdout, stderr io.Writer) *cobra.Command {
-	ns := &cobra.Command{
-		Use:   binding,
-		Short: fmt.Sprintf("Commands from the %s import", binding),
-		RunE: func(c *cobra.Command, _ []string) error {
-			return c.Help()
-		},
-	}
+	ns := newDiscoveredTreeCommand(binding)
+	ns.Short = fmt.Sprintf("Commands from the %s import", binding)
 
 	for _, entry := range sortCommandsForTree(entries) {
-		addDiscoveredLeaf(ns, entry, cityPath, cityName, stdout, stderr)
+		addOrMergeDiscoveredCommand(ns, entry, cityPath, cityName, stdout, stderr)
 	}
 
 	return ns
 }
 
-func addDiscoveredLeaf(root *cobra.Command, entry config.DiscoveredCommand, cityPath, cityName string, stdout, stderr io.Writer) {
+func addOrMergeDiscoveredCommand(root *cobra.Command, entry config.DiscoveredCommand, cityPath, cityName string, stdout, stderr io.Writer) {
 	if len(entry.Command) == 0 {
 		return
 	}
 
-	parent := root
-	for _, word := range entry.Command[:len(entry.Command)-1] {
-		if existing := findSubcommand(parent, word); existing != nil {
-			parent = existing
-			continue
-		}
-		next := &cobra.Command{
-			Use: word,
-			RunE: func(c *cobra.Command, _ []string) error {
-				return c.Help()
-			},
-		}
-		parent.AddCommand(next)
-		parent = next
+	node := root
+	for _, word := range entry.Command {
+		node = ensureDiscoveredTreeNode(node, word)
 	}
+	applyDiscoveredCommandNode(node, entry, cityPath, cityName, stdout, stderr)
+}
 
-	leafWord := entry.Command[len(entry.Command)-1]
-	if existing := findSubcommand(parent, leafWord); existing != nil {
+func ensureDiscoveredTreeNode(parent *cobra.Command, word string) *cobra.Command {
+	if existing := findSubcommand(parent, word); existing != nil {
+		return existing
+	}
+	next := newDiscoveredTreeCommand(word)
+	parent.AddCommand(next)
+	return next
+}
+
+func newDiscoveredTreeCommand(word string) *cobra.Command {
+	return &cobra.Command{
+		Use: word,
+		RunE: func(c *cobra.Command, _ []string) error {
+			return c.Help()
+		},
+	}
+}
+
+func applyDiscoveredCommandNode(node *cobra.Command, entry config.DiscoveredCommand, cityPath, cityName string, stdout, stderr io.Writer) {
+	if entry.Description != "" {
+		node.Short = entry.Description
+	}
+	if long := readDiscoveredHelp(entry.HelpFile); long != "" {
+		node.Long = long
+	}
+	if entry.RunScript == "" {
 		return
 	}
 
-	leaf := &cobra.Command{
-		Use:                leafWord,
-		Short:              entry.Description,
-		Long:               readDiscoveredHelp(entry),
-		DisableFlagParsing: true,
-		RunE: func(_ *cobra.Command, args []string) error {
-			code := runDiscoveredCommand(entry, cityPath, cityName, args, stdin(), stdout, stderr)
-			if code != 0 {
-				os.Exit(code)
-			}
-			return nil
-		},
+	entryCopy := entry
+	node.DisableFlagParsing = true
+	node.RunE = func(_ *cobra.Command, args []string) error {
+		code := runDiscoveredCommand(entryCopy, cityPath, cityName, args, stdin(), stdout, stderr)
+		if code != 0 {
+			os.Exit(code)
+		}
+		return nil
 	}
-	parent.AddCommand(leaf)
 }
 
 func findSubcommand(cmd *cobra.Command, name string) *cobra.Command {
@@ -109,11 +114,11 @@ func findSubcommand(cmd *cobra.Command, name string) *cobra.Command {
 	return nil
 }
 
-func readDiscoveredHelp(entry config.DiscoveredCommand) string {
-	if entry.HelpFile == "" {
+func readDiscoveredHelp(helpFile string) string {
+	if helpFile == "" {
 		return ""
 	}
-	data, err := os.ReadFile(entry.HelpFile)
+	data, err := os.ReadFile(helpFile)
 	if err != nil {
 		return ""
 	}
@@ -176,11 +181,27 @@ func tryDiscoveredCommandFallback(args []string, cfg *config.City, cityPath stri
 		return true
 	}
 
+	commandWords := args[1:]
+	if exact, ok := exactDiscoveredCommandMatch(matching, commandWords); ok {
+		if exact.RunScript != "" {
+			code := runDiscoveredCommand(exact, cityPath, cfg.Workspace.Name, nil, stdin(), stdout, stderr)
+			if code != 0 {
+				os.Exit(code)
+			}
+			return true
+		}
+		printDiscoveredCommandNodeHelp(binding, exact, matching, stdout)
+		return true
+	}
+
 	cityName := cfg.Workspace.Name
 	sort.SliceStable(matching, func(i, j int) bool {
 		return len(matching[i].Command) > len(matching[j].Command)
 	})
 	for _, entry := range matching {
+		if entry.RunScript == "" {
+			continue
+		}
 		if len(args)-1 < len(entry.Command) {
 			continue
 		}
@@ -194,6 +215,53 @@ func tryDiscoveredCommandFallback(args []string, cfg *config.City, cityPath stri
 	}
 
 	return false
+}
+
+func exactDiscoveredCommandMatch(entries []config.DiscoveredCommand, command []string) (config.DiscoveredCommand, bool) {
+	for _, entry := range entries {
+		if slices.Equal(entry.Command, command) {
+			return entry, true
+		}
+	}
+	return config.DiscoveredCommand{}, false
+}
+
+func printDiscoveredCommandNodeHelp(binding string, entry config.DiscoveredCommand, entries []config.DiscoveredCommand, stdout io.Writer) {
+	if long := readDiscoveredHelp(entry.HelpFile); long != "" {
+		fmt.Fprintln(stdout, long) //nolint:errcheck
+	}
+
+	children := discoveredImmediateChildren(entries, entry.Command)
+	if len(children) == 0 {
+		return
+	}
+
+	prefix := strings.TrimSpace(strings.Join(append([]string{binding}, entry.Command...), " "))
+	fmt.Fprintf(stdout, "Available subcommands for %s:\n", prefix) //nolint:errcheck
+	for _, child := range children {
+		fmt.Fprintf(stdout, "  %s\n", child) //nolint:errcheck
+	}
+}
+
+func discoveredImmediateChildren(entries []config.DiscoveredCommand, prefix []string) []string {
+	seen := make(map[string]bool)
+	var children []string
+	for _, entry := range entries {
+		if len(entry.Command) != len(prefix)+1 {
+			continue
+		}
+		if !slices.Equal(entry.Command[:len(prefix)], prefix) {
+			continue
+		}
+		child := entry.Command[len(prefix)]
+		if seen[child] {
+			continue
+		}
+		seen[child] = true
+		children = append(children, child)
+	}
+	sort.Strings(children)
+	return children
 }
 
 func sortCommandsForTree(entries []config.DiscoveredCommand) []config.DiscoveredCommand {

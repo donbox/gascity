@@ -23,14 +23,13 @@ type DiscoveredCommand struct {
 }
 
 type commandManifest struct {
-	Command     []string `toml:"command"`
-	Description string   `toml:"description"`
-	Run         string   `toml:"run"`
+	Description string `toml:"description"`
+	Run         string `toml:"run"`
 }
 
 // DiscoverPackCommands scans a pack's commands/ tree and returns
-// convention-discovered commands. Each directory containing run.sh is a
-// command leaf. Nested directories imply nested command words by default.
+// convention-discovered command nodes. Nested directories imply nested
+// command words by default. A node may be runnable, a parent, or both.
 func DiscoverPackCommands(fs fsys.FS, packDir, packName string) ([]DiscoveredCommand, error) {
 	commandsDir := filepath.Join(packDir, "commands")
 	if _, err := fs.Stat(commandsDir); err != nil {
@@ -68,7 +67,6 @@ func walkCommandDirs(fs fsys.FS, packDir, packName, dir string, words []string, 
 		}
 		if ok {
 			*discovered = append(*discovered, cmd)
-			continue
 		}
 
 		if err := walkCommandDirs(fs, packDir, packName, childDir, childWords, discovered); err != nil {
@@ -88,12 +86,15 @@ func discoveredCommandFromDir(fs fsys.FS, packDir, packName, commandDir string, 
 
 	if data, err := fs.ReadFile(manifestPath); err == nil {
 		var manifest commandManifest
-		if _, err := toml.Decode(string(data), &manifest); err != nil {
+		md, err := toml.Decode(string(data), &manifest)
+		if err != nil {
 			rel, _ := filepath.Rel(filepath.Join(packDir, "commands"), manifestPath)
 			return DiscoveredCommand{}, false, fmt.Errorf("commands/%s: %w", filepath.ToSlash(rel), err)
 		}
-		if len(manifest.Command) > 0 {
-			words = append([]string{}, manifest.Command...)
+		rel, _ := filepath.Rel(filepath.Join(packDir, "commands"), manifestPath)
+		source := filepath.ToSlash(filepath.Join("commands", rel))
+		if err := manifestUndecodedError(md, source); err != nil {
+			return DiscoveredCommand{}, false, err
 		}
 		if manifest.Description != "" {
 			description = manifest.Description
@@ -104,18 +105,25 @@ func discoveredCommandFromDir(fs fsys.FS, packDir, packName, commandDir string, 
 	}
 
 	runPath := filepath.Join(commandDir, runRel)
+	runnable := false
 	if strings.Contains(runRel, "{{") {
 		runPath = runRel
+		runnable = true
 	}
-	if _, err := fs.Stat(runPath); err != nil {
-		if !strings.Contains(runRel, "{{") {
-			return DiscoveredCommand{}, false, nil
+	if !runnable {
+		if _, err := fs.Stat(runPath); err == nil {
+			runnable = true
+		} else {
+			runPath = ""
 		}
 	}
 
 	helpFile := ""
 	if _, err := fs.Stat(helpPath); err == nil {
 		helpFile = helpPath
+	}
+	if !runnable && helpFile == "" && description == "" {
+		return DiscoveredCommand{}, false, nil
 	}
 
 	relDir, err := filepath.Rel(filepath.Join(packDir, "commands"), commandDir)
@@ -133,4 +141,16 @@ func discoveredCommandFromDir(fs fsys.FS, packDir, packName, commandDir string, 
 		PackDir:     packDir,
 		PackName:    packName,
 	}, true, nil
+}
+
+func manifestUndecodedError(md toml.MetaData, source string) error {
+	undecoded := md.Undecoded()
+	if len(undecoded) == 0 {
+		return nil
+	}
+	names := make([]string, 0, len(undecoded))
+	for _, key := range undecoded {
+		names = append(names, key.String())
+	}
+	return fmt.Errorf("%s: unknown field(s): %s", source, strings.Join(names, ", "))
 }

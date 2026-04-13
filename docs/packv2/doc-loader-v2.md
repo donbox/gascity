@@ -2,8 +2,7 @@
 
 > **Status:** Design description of the v.next loader as proposed in
 > [doc-pack-v2.md](doc-pack-v2.md) ([gastownhall/gascity#360](https://github.com/gastownhall/gascity/issues/360)).
-> Companion to [doc-loader-v1.md](doc-loader-v1.md) (the current loader).
-> Read them side-by-side to see the diff.
+> Companion to the current release-branch loader behavior.
 
 ## Conceptual overview
 

@@ -176,7 +176,7 @@ func doDoctor(fix, verbose bool, stdout, stderr io.Writer) int {
 	if cfgErr == nil {
 		for _, entry := range cfg.PackDoctors {
 			d.Register(&doctor.PackScriptCheck{
-				CheckName: entry.PackName + ":" + entry.Name,
+				CheckName: packDoctorCheckName(entry),
 				Script:    entry.RunScript,
 				PackDir:   entry.PackDir,
 				PackName:  entry.PackName,
@@ -191,6 +191,16 @@ func doDoctor(fix, verbose bool, stdout, stderr io.Writer) int {
 		return 1
 	}
 	return 0
+}
+
+func packDoctorCheckName(entry config.DiscoveredDoctor) string {
+	if entry.BindingName != "" {
+		return entry.BindingName + ":" + entry.Name
+	}
+	if entry.PackName != "" {
+		return entry.PackName + ":" + entry.Name
+	}
+	return entry.Name
 }
 
 // collectPackDirs returns all unique pack directories from the city

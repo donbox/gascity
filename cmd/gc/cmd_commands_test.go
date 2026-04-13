@@ -20,11 +20,18 @@ func TestAddDiscoveredCommandsToRoot_BuildsBindingScopedNestedTree(t *testing.T)
 			BindingName: "gs",
 			Command:     []string{"status"},
 			Description: "Show status",
+			RunScript:   "/packs/gs/commands/status/run.sh",
+		},
+		{
+			BindingName: "gs",
+			Command:     []string{"repo"},
+			Description: "Repo namespace",
 		},
 		{
 			BindingName: "gs",
 			Command:     []string{"repo", "sync"},
 			Description: "Sync repo",
+			RunScript:   "/packs/gs/commands/repo/sync/run.sh",
 		},
 	}
 
@@ -40,6 +47,9 @@ func TestAddDiscoveredCommandsToRoot_BuildsBindingScopedNestedTree(t *testing.T)
 	repo := findSubcommand(gs, "repo")
 	if repo == nil {
 		t.Fatal("missing nested repo namespace")
+	}
+	if repo.Short != "Repo namespace" {
+		t.Fatalf("repo Short = %q, want %q", repo.Short, "Repo namespace")
 	}
 	sync := findSubcommand(repo, "sync")
 	if sync == nil {
@@ -300,7 +310,7 @@ func TestAddDiscoveredCommandsToRoot_CollisionProtection(t *testing.T) {
 func TestTryDiscoveredCommandFallback_PrefersLongestMatch(t *testing.T) {
 	dir := t.TempDir()
 	repoDir := filepath.Join(dir, "pack", "commands", "repo")
-	syncDir := filepath.Join(dir, "pack", "commands", "repo-sync")
+	syncDir := filepath.Join(dir, "pack", "commands", "repo", "sync")
 	for _, p := range []string{repoDir, syncDir} {
 		if err := os.MkdirAll(p, 0o755); err != nil {
 			t.Fatal(err)
@@ -343,11 +353,40 @@ func TestTryDiscoveredCommandFallback_PrefersLongestMatch(t *testing.T) {
 	}
 }
 
-func TestAddDiscoveredCommandsToRoot_DedupsDuplicateLeaf(t *testing.T) {
+func TestTryDiscoveredCommandFallback_HelpOnlyParentListsChildren(t *testing.T) {
+	cfg := &config.City{
+		PackCommands: []config.DiscoveredCommand{
+			{
+				BindingName: "gs",
+				Command:     []string{"repo"},
+				HelpFile:    "",
+			},
+			{
+				BindingName: "gs",
+				Command:     []string{"repo", "sync"},
+				Description: "Sync repo",
+			},
+		},
+	}
+
+	var stdout, stderr bytes.Buffer
+	ok := tryDiscoveredCommandFallback([]string{"gs", "repo"}, cfg, "/city", &stdout, &stderr)
+	if !ok {
+		t.Fatal("tryDiscoveredCommandFallback returned false, want true")
+	}
+	if !strings.Contains(stdout.String(), "Available subcommands for gs repo:") {
+		t.Fatalf("stdout missing parent help listing, got:\n%s", stdout.String())
+	}
+	if !strings.Contains(stdout.String(), "sync") {
+		t.Fatalf("stdout missing child subcommand, got:\n%s", stdout.String())
+	}
+}
+
+func TestAddDiscoveredCommandsToRoot_AllowsRunnableParentAndChild(t *testing.T) {
 	root := &cobra.Command{Use: "gc"}
 	entries := []config.DiscoveredCommand{
-		{BindingName: "gs", Command: []string{"status"}, Description: "first"},
-		{BindingName: "gs", Command: []string{"status"}, Description: "second"},
+		{BindingName: "gs", Command: []string{"repo"}, Description: "Repo", RunScript: "/packs/gs/commands/repo/run.sh"},
+		{BindingName: "gs", Command: []string{"repo", "sync"}, Description: "Sync", RunScript: "/packs/gs/commands/repo/sync/run.sh"},
 	}
 
 	addDiscoveredCommandsToRoot(root, entries, "/city", "testcity", os.Stdout, os.Stderr)
@@ -355,13 +394,18 @@ func TestAddDiscoveredCommandsToRoot_DedupsDuplicateLeaf(t *testing.T) {
 	if gs == nil {
 		t.Fatal("missing binding namespace")
 	}
-	count := 0
-	for _, c := range gs.Commands() {
-		if c.Name() == "status" {
-			count++
-		}
+	repo := findSubcommand(gs, "repo")
+	if repo == nil {
+		t.Fatal("missing runnable parent command")
 	}
-	if count != 1 {
-		t.Fatalf("got %d status commands, want 1", count)
+	sync := findSubcommand(repo, "sync")
+	if sync == nil {
+		t.Fatal("missing nested child command")
+	}
+	if repo.RunE == nil {
+		t.Fatal("repo RunE = nil, want runnable parent")
+	}
+	if !repo.DisableFlagParsing {
+		t.Fatal("repo DisableFlagParsing = false, want true for runnable parent")
 	}
 }

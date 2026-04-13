@@ -23,6 +23,11 @@ pack directory tree.
 > consult `docs/packv2/skew-analysis.md` and
 > `docs/packv2/doc-conformance-matrix.md`.
 >
+> **Breaking-change summaries:** for release-facing summaries of what
+> changed, see:
+> - [`docs/packv2/breaking-gc-command-surface.md`](../packv2/breaking-gc-command-surface.md)
+> - [`docs/packv2/breaking-toml-schema-and-layout.md`](../packv2/breaking-toml-schema-and-layout.md)
+>
 > **NYI in this wave:** the `.gc/` site-binding split is part of the
 > long-term model, but the dedicated `.gc/site.toml` path split is still
 > tracked in [#588](https://github.com/gastownhall/gascity/issues/588).
@@ -237,7 +242,7 @@ This gives a consistent pair:
 
 ## Commands
 
-Commands are moving toward convention-first entry directories.
+Commands now use convention-first entry directories.
 
 ### Simple case
 
@@ -253,19 +258,23 @@ This is enough for a default single-word command.
 
 ```text
 commands/
-└── repo-sync/
-    ├── command.toml
+└── repo/
+    ├── help.md
     ├── run.sh
-    └── help.md
+    └── sync/
+        ├── command.toml
+        └── sync.sh
 ```
 
-Use `command.toml` only when the default mapping is not enough, for
-example:
+This shows the settled command shape:
 
-- multi-word command placement
-- extension-root placement
-- richer metadata
-- non-default entrypoint
+- directory structure defines command words
+- a command node may be both runnable and a parent
+- `help.md` is valid on any node
+- `run.sh` is the preferred default entrypoint
+- `command.toml` is optional and minimal:
+  - `description`
+  - `run`
 
 ### Migration notes
 
@@ -287,21 +296,25 @@ commands/status/run.sh
 New richer case:
 
 ```text
-commands/repo-sync/
-├── command.toml
+commands/repo/
+├── help.md
 ├── run.sh
-└── help.md
+└── sync/
+    ├── command.toml
+    └── sync.sh
 ```
 
-> **NYI in this wave:** the default `commands/<name>/run.sh` discovery
-> path is part of the current release surface. The final command manifest
-> shape, richer identity model, and collision-policy story are still
-> being settled. Tracked in
+Use nested directories to express multi-word commands. Do not rely on
+`command = [...]` remapping.
+
+Default command discovery and the minimal `command.toml` surface are part
+of the current release surface. Broader extension-root exposure and
+future command-product expansion remain tracked in
 > [#668](https://github.com/gastownhall/gascity/issues/668).
 
 ## Doctor checks
 
-Doctor checks are moving in parallel with commands.
+Doctor checks now move in parallel with commands, but stay flat.
 
 ### Simple case
 
@@ -325,10 +338,14 @@ The migration rule is the same as commands:
 
 - keep the entrypoint local to the check that uses it
 - use local TOML only when the default mapping is not enough
+- keep the check flat as `doctor/<name>/`
+- use only these `doctor.toml` fields:
+  - `description`
+  - `run`
 
-> **NYI in this wave:** the default `doctor/<name>/run.sh` discovery
-> path is part of the current release surface. Final command/doctor
-> manifest symmetry and richer doctor metadata remain tracked in
+Default doctor discovery and the minimal `doctor.toml` surface are part
+of the current release surface. Broader command/doctor product shaping
+remains tracked in
 > [#668](https://github.com/gastownhall/gascity/issues/668).
 
 ## Overlays

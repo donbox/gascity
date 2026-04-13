@@ -110,3 +110,26 @@ func TestDoctorSkipsSuspendedRigChecks(t *testing.T) {
 		t.Error("suspended-rig checks should not be registered")
 	}
 }
+
+func TestPackDoctorCheckName_PrefersBinding(t *testing.T) {
+	entry := config.DiscoveredDoctor{
+		BindingName: "ops",
+		PackName:    "maintenance",
+		Name:        "tooling",
+	}
+
+	if got := packDoctorCheckName(entry); got != "ops:tooling" {
+		t.Fatalf("packDoctorCheckName() = %q, want %q", got, "ops:tooling")
+	}
+}
+
+func TestPackDoctorCheckName_FallsBackToPackName(t *testing.T) {
+	entry := config.DiscoveredDoctor{
+		PackName: "maintenance",
+		Name:     "tooling",
+	}
+
+	if got := packDoctorCheckName(entry); got != "maintenance:tooling" {
+		t.Fatalf("packDoctorCheckName() = %q, want %q", got, "maintenance:tooling")
+	}
+}

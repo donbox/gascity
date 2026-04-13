@@ -4,9 +4,14 @@
 
 Title: `feat: Pack commands v.next — command identity, extension points, and CLI structure`
 
-This is a companion to [doc-pack-v2.md](doc-pack-v2.md), which covers the pack/city model redesign, to [doc-loader-v1.md](doc-loader-v1.md), which documents the current loader behavior, and to [doc-loader-v2.md](doc-loader-v2.md), which describes the proposed v.next loader.
+This is a companion to [doc-pack-v2.md](doc-pack-v2.md), which covers the pack/city model redesign, and to [doc-loader-v2.md](doc-loader-v2.md), which describes the proposed v.next loader.
 
-> **Keeping in sync:** This file is the source of truth. When a GitHub issue is created, edit here, then update the issue body from the section between `---BEGIN ISSUE---` and `---END ISSUE---`.
+> **Status note:** This file is now design rationale and parking-lot material, not the release-facing authority for the current commands surface. For the settled current-wave contract, use:
+>
+> - `docs/guides/migrating-to-pack-vnext.md`
+> - `docs/packv2/skew-analysis.md`
+> - `docs/packv2/doc-conformance-matrix.md`
+> - `docs/packv2/doc-directory-conventions.md`
 
 ---BEGIN ISSUE---
 

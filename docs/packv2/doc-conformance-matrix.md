@@ -65,8 +65,8 @@ These are settled enough, and implemented enough, to block CI now.
 | Patch prompt template gating | An explicitly patched `prompt_template` path follows the same `.template.` rule as agent prompt files: `.template.md` renders, plain `.md` stays inert | Unit | `internal/config/patch.go`, `cmd/gc/prompt.go` |
 | Formulas filename truth | PR2 formula files use flat `formulas/<name>.formula.toml` filenames as the current truth surface | Unit + testscript | `cmd/gc/system_formulas.go`, `internal/citylayout/layout.go` |
 | Orders discovery | top-level `orders/` discovery works by convention | Unit | `internal/orders/discovery.go` |
-| Commands discovery | The default `commands/<name>/run.sh` discovery path works; final manifest shape remains non-gating | Unit + testscript | `internal/config/command_discovery.go` |
-| Doctor discovery | The default `doctor/<name>/run.sh` discovery path works | Unit + testscript | `internal/config/doctor_discovery.go` |
+| Commands discovery | Directory structure defines command words, a command node may be both runnable and a parent, `help.md` is valid on any node, and `command.toml` is limited to `description` + `run` | Unit + testscript | `internal/config/command_discovery.go`, `cmd/gc/cmd_commands.go` |
+| Doctor discovery | Doctor stays flat at `doctor/<name>/`, `doctor.toml` is limited to `description` + `run`, visible runtime identity is `<binding>:<name>`, and same-binding name conflicts only dedup when the implementation is exact | Unit + testscript | `internal/config/doctor_discovery.go`, `internal/config/pack.go`, `cmd/gc/cmd_doctor.go` |
 | Legacy migration rewrite | `gc import migrate` performs the implemented mechanical rewrites for agent directories, prompt/overlay/namepool moves, and import-oriented composition; it does not gate loader-backed behavior that `skew-analysis.md` still marks red | Testscript | `cmd/gc/testdata/migrate-v2.txtar` |
 
 ## Add To CI When Warning Plumbing Lands
@@ -102,8 +102,8 @@ unsettled to be reliable release gates.
 | Pack `skills/` discovery | documented, not implemented | Not a proven runtime surface yet in this wave |
 | `mcp/` TOML abstraction | documented, not implemented | Same as skills: valuable spec surface, not release-ready conformance surface |
 | `.gc/site.toml` rig-path split (`#588`) | future work | Important, but it is a separate migration and should not muddy the current pack/city suite |
-| Final doctor manifest symmetry/shape | still under-specified | Discovery is testable now, but the final manifest shape should not be frozen by the first-pass suite |
-| Command collision rules and final command/doctor manifest shape | still under-specified | The docs still use "current preferred direction" language rather than frozen contract language |
+| Broader command/doctor extension model | partially designed, not implemented | Binding-scoped commands and flat doctor checks are real now; richer extension-root exposure, aliases, and future product expansion are still deferred |
+| Command/doctor future metadata growth | intentionally deferred | The current release freezes only the minimal `description` + `run` manifest surface |
 | Post-release cleanup surfaces | e.g. removing `.order.` / `.formula.` infixes or dismantling `[workspace]` | Valid roadmap work, but not a current-wave ship gate |
 
 ## First Fixture Set
